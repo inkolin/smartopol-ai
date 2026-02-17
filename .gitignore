@@ -1,0 +1,27 @@
+# Rust build artifacts
+target/
+
+# SQLite databases
+*.db
+*.db-journal
+*.db-wal
+
+# Environment and secrets
+.env
+.env.*
+*.key
+*.pem
+
+# Reference code (not our code)
+openclaw/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

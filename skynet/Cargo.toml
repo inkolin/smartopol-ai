@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/skynet-core",
+    "crates/skynet-protocol",
+    "crates/skynet-gateway",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["SmartopolAI Contributors"]
+license = "MIT"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip"] }
+tower = "0.5"
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+figment = { version = "0.10", features = ["toml", "env"] }
+rustls = "0.23"
+argon2 = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+dashmap = "6"
+chrono = { version = "0.4", features = ["serde"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+futures-util = "0.3"
+anyhow = "1"

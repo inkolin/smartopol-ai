@@ -1,0 +1,15 @@
+[gateway]
+port = 18789
+bind = "127.0.0.1"
+
+[gateway.auth]
+mode = "token"
+token = "change-me-in-production"
+
+[agent]
+model = "claude-sonnet-4-6"
+
+[providers]
+# Anthropic config — set via env or uncomment below:
+# [providers.anthropic]
+# api_key = "sk-ant-..."
