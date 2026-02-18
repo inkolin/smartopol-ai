@@ -16,7 +16,9 @@ pub struct HookEngine {
 
 impl HookEngine {
     pub fn new() -> Self {
-        Self { hooks: RwLock::new(Vec::new()) }
+        Self {
+            hooks: RwLock::new(Vec::new()),
+        }
     }
 
     /// Register a hook. Re-sorts the list so priority order is always correct.
@@ -47,12 +49,18 @@ impl HookEngine {
 
         // If a Before hook blocked, skip After hooks — the event never happened.
         if matches!(action, HookAction::Block { .. }) {
-            return HookResult { action, duration_ms: 0 };
+            return HookResult {
+                action,
+                duration_ms: 0,
+            };
         }
 
         self.emit_after(ctx);
 
-        HookResult { action, duration_ms: 0 }
+        HookResult {
+            action,
+            duration_ms: 0,
+        }
     }
 
     /// Run all Before hooks in priority order.
@@ -62,7 +70,9 @@ impl HookEngine {
     pub fn emit_before(&self, ctx: &mut HookContext) -> HookAction {
         let hooks = self.hooks.read().expect("hook registry poisoned");
 
-        for hook in hooks.iter().filter(|h| h.event == ctx.event && h.timing == HookTiming::Before)
+        for hook in hooks
+            .iter()
+            .filter(|h| h.event == ctx.event && h.timing == HookTiming::Before)
         {
             let t = Instant::now();
             let result = hook.handler.handle(ctx);
@@ -94,7 +104,9 @@ impl HookEngine {
     pub fn emit_after(&self, ctx: HookContext) {
         let hooks = self.hooks.read().expect("hook registry poisoned");
 
-        for hook in hooks.iter().filter(|h| h.event == ctx.event && h.timing == HookTiming::After)
+        for hook in hooks
+            .iter()
+            .filter(|h| h.event == ctx.event && h.timing == HookTiming::After)
         {
             let ctx_clone = ctx.clone();
             // Clone Arc — cheap pointer bump, not a deep copy of the handler.

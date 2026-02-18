@@ -97,12 +97,17 @@ pub struct HookResult {
 
 impl HookResult {
     pub fn allow(duration_ms: u64) -> Self {
-        Self { action: HookAction::Allow, duration_ms }
+        Self {
+            action: HookAction::Allow,
+            duration_ms,
+        }
     }
 
     pub fn block(reason: impl Into<String>, duration_ms: u64) -> Self {
         Self {
-            action: HookAction::Block { reason: reason.into() },
+            action: HookAction::Block {
+                reason: reason.into(),
+            },
             duration_ms,
         }
     }
@@ -135,7 +140,13 @@ impl HookDefinition {
         timing: HookTiming,
         handler: Arc<dyn HookHandler>,
     ) -> Self {
-        Self { name: name.into(), event, timing, handler, priority: 0 }
+        Self {
+            name: name.into(),
+            event,
+            timing,
+            handler,
+            priority: 0,
+        }
     }
 
     pub fn with_priority(mut self, priority: i32) -> Self {

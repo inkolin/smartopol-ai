@@ -1,9 +1,9 @@
-use skynet_core::config::{AuthMode, SkynetConfig, PROTOCOL_VERSION, MAX_PAYLOAD_BYTES};
+use skynet_core::config::{AuthMode, SkynetConfig, MAX_PAYLOAD_BYTES, PROTOCOL_VERSION};
 use skynet_protocol::{
     frames::EventFrame,
     handshake::{
-        AuthPayload, ClientPolicy, ConnectChallenge, ConnectParams,
-        HelloOk, ServerFeatures, ServerInfo,
+        AuthPayload, ClientPolicy, ConnectChallenge, ConnectParams, HelloOk, ServerFeatures,
+        ServerInfo,
     },
 };
 use uuid::Uuid;
@@ -17,7 +17,9 @@ pub fn make_nonce() -> String {
 pub fn challenge_event(nonce: &str) -> String {
     let frame = EventFrame::new(
         "connect.challenge",
-        ConnectChallenge { nonce: nonce.to_string() },
+        ConnectChallenge {
+            nonce: nonce.to_string(),
+        },
     );
     serde_json::to_string(&frame).expect("challenge serialization is infallible")
 }
@@ -66,7 +68,7 @@ pub fn hello_ok_payload() -> HelloOk {
         features: ServerFeatures {
             streaming: true,
             multi_agent: false,
-            persistent_users: false,   // Phase 3
+            persistent_users: false, // Phase 3
             cross_channel_memory: false,
             role_permissions: false,
             prompt_caching: false,

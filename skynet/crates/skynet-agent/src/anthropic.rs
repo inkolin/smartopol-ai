@@ -55,13 +55,18 @@ impl LlmProvider for AnthropicProvider {
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(5000);
-            return Err(ProviderError::RateLimited { retry_after_ms: retry });
+            return Err(ProviderError::RateLimited {
+                retry_after_ms: retry,
+            });
         }
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
             warn!(status, body = %text, "Anthropic API error");
-            return Err(ProviderError::Api { status, message: text });
+            return Err(ProviderError::Api {
+                status,
+                message: text,
+            });
         }
 
         let api_resp: ApiResponse = resp
@@ -102,13 +107,18 @@ impl LlmProvider for AnthropicProvider {
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(5000);
-            return Err(ProviderError::RateLimited { retry_after_ms: retry });
+            return Err(ProviderError::RateLimited {
+                retry_after_ms: retry,
+            });
         }
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
             warn!(status, body = %text, "Anthropic streaming API error");
-            return Err(ProviderError::Api { status, message: text });
+            return Err(ProviderError::Api {
+                status,
+                message: text,
+            });
         }
 
         // hand off to the SSE stream processor

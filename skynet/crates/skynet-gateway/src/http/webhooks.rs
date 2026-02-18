@@ -43,13 +43,17 @@ pub async fn webhook_handler(
         ));
     }
 
-    let source_cfg = cfg.sources.iter().find(|s| s.name == source).ok_or_else(|| {
-        warn!(source = %source, "unknown webhook source");
-        (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "unknown webhook source"})),
-        )
-    })?;
+    let source_cfg = cfg
+        .sources
+        .iter()
+        .find(|s| s.name == source)
+        .ok_or_else(|| {
+            warn!(source = %source, "unknown webhook source");
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "unknown webhook source"})),
+            )
+        })?;
 
     info!(source = %source, bytes = body.len(), "webhook arrived");
 
@@ -77,13 +81,15 @@ pub async fn webhook_handler(
         )
     })?;
 
-    let receipt_id = forward_to_agent(&state, &source, payload).await.map_err(|e| {
-        warn!(source = %source, error = %e, "failed to forward webhook to agent");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "internal error"})),
-        )
-    })?;
+    let receipt_id = forward_to_agent(&state, &source, payload)
+        .await
+        .map_err(|e| {
+            warn!(source = %source, error = %e, "failed to forward webhook to agent");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "internal error"})),
+            )
+        })?;
 
     info!(source = %source, receipt_id = %receipt_id, "webhook accepted");
     Ok(Json(json!({"ok": true, "receipt_id": receipt_id})))
@@ -108,8 +114,8 @@ fn verify_hmac_sha256(
         .strip_prefix("sha256=")
         .ok_or_else(|| "malformed X-Hub-Signature-256 header".to_string())?;
 
-    let expected = hex::decode(sig_hex)
-        .map_err(|_| "X-Hub-Signature-256 is not valid hex".to_string())?;
+    let expected =
+        hex::decode(sig_hex).map_err(|_| "X-Hub-Signature-256 is not valid hex".to_string())?;
 
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
         .map_err(|_| "invalid HMAC key length".to_string())?;
@@ -121,7 +127,8 @@ fn verify_hmac_sha256(
 
 /// Verify a static bearer token in the `Authorization: Bearer <token>` header.
 fn verify_bearer_token(headers: &HeaderMap, secret: Option<&str>) -> Result<(), String> {
-    let expected = secret.ok_or_else(|| "no bearer token configured for this source".to_string())?;
+    let expected =
+        secret.ok_or_else(|| "no bearer token configured for this source".to_string())?;
 
     let auth_header = headers
         .get("authorization")

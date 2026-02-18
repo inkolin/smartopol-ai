@@ -24,7 +24,9 @@ pub struct SchedulerHandle {
 impl SchedulerHandle {
     pub fn new(conn: Connection) -> Result<Self> {
         init_db(&conn)?;
-        Ok(Self { conn: Arc::new(Mutex::new(conn)) })
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+        })
     }
 
     pub fn add_job(&self, name: &str, schedule: Schedule, action: &str) -> Result<Job> {
@@ -45,9 +47,17 @@ impl SchedulerHandle {
         )?;
         info!(job_id = %id, %name, "job added via handle");
         Ok(Job {
-            id, name: name.to_string(), schedule, action: action.to_string(),
-            status: JobStatus::Pending, last_run: None, next_run: next,
-            run_count: 0, max_runs: None, created_at: now_str.clone(), updated_at: now_str,
+            id,
+            name: name.to_string(),
+            schedule,
+            action: action.to_string(),
+            status: JobStatus::Pending,
+            last_run: None,
+            next_run: next,
+            run_count: 0,
+            max_runs: None,
+            created_at: now_str.clone(),
+            updated_at: now_str,
         })
     }
 
@@ -71,24 +81,47 @@ impl SchedulerHandle {
         let jobs = stmt
             .query_map([], |row| {
                 Ok((
-                    row.get::<_, String>(0)?,  row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,  row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,  row.get::<_, Option<String>>(5)?,
-                    row.get::<_, Option<String>>(6)?, row.get::<_, u32>(7)?,
-                    row.get::<_, Option<u32>>(8)?, row.get::<_, String>(9)?,
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, u32>(7)?,
+                    row.get::<_, Option<u32>>(8)?,
+                    row.get::<_, String>(9)?,
                     row.get::<_, String>(10)?,
                 ))
             })?
             .filter_map(|r| {
-                let (id, name, sched_json, action, status_str,
-                     last_run, next_run, run_count, max_runs,
-                     created_at, updated_at) = r.ok()?;
+                let (
+                    id,
+                    name,
+                    sched_json,
+                    action,
+                    status_str,
+                    last_run,
+                    next_run,
+                    run_count,
+                    max_runs,
+                    created_at,
+                    updated_at,
+                ) = r.ok()?;
                 let schedule: Schedule = serde_json::from_str(&sched_json).ok()?;
                 let status: JobStatus = status_str.parse().ok()?;
                 Some(Job {
-                    id, name, schedule, action, status,
-                    last_run, next_run, run_count, max_runs,
-                    created_at, updated_at,
+                    id,
+                    name,
+                    schedule,
+                    action,
+                    status,
+                    last_run,
+                    next_run,
+                    run_count,
+                    max_runs,
+                    created_at,
+                    updated_at,
                 })
             })
             .collect();
@@ -163,29 +196,47 @@ impl SchedulerEngine {
         let jobs = stmt
             .query_map([], |row| {
                 Ok((
-                    row.get::<_, String>(0)?,           // id
-                    row.get::<_, String>(1)?,           // name
-                    row.get::<_, String>(2)?,           // schedule JSON
-                    row.get::<_, String>(3)?,           // action
-                    row.get::<_, String>(4)?,           // status
-                    row.get::<_, Option<String>>(5)?,   // last_run
-                    row.get::<_, Option<String>>(6)?,   // next_run
-                    row.get::<_, u32>(7)?,              // run_count
-                    row.get::<_, Option<u32>>(8)?,      // max_runs
-                    row.get::<_, String>(9)?,           // created_at
-                    row.get::<_, String>(10)?,          // updated_at
+                    row.get::<_, String>(0)?,         // id
+                    row.get::<_, String>(1)?,         // name
+                    row.get::<_, String>(2)?,         // schedule JSON
+                    row.get::<_, String>(3)?,         // action
+                    row.get::<_, String>(4)?,         // status
+                    row.get::<_, Option<String>>(5)?, // last_run
+                    row.get::<_, Option<String>>(6)?, // next_run
+                    row.get::<_, u32>(7)?,            // run_count
+                    row.get::<_, Option<u32>>(8)?,    // max_runs
+                    row.get::<_, String>(9)?,         // created_at
+                    row.get::<_, String>(10)?,        // updated_at
                 ))
             })?
             .filter_map(|r| {
-                let (id, name, sched_json, action, status_str,
-                     last_run, next_run, run_count, max_runs,
-                     created_at, updated_at) = r.ok()?;
+                let (
+                    id,
+                    name,
+                    sched_json,
+                    action,
+                    status_str,
+                    last_run,
+                    next_run,
+                    run_count,
+                    max_runs,
+                    created_at,
+                    updated_at,
+                ) = r.ok()?;
                 let schedule: Schedule = serde_json::from_str(&sched_json).ok()?;
                 let status: JobStatus = status_str.parse().ok()?;
                 Some(Job {
-                    id, name, schedule, action, status,
-                    last_run, next_run, run_count, max_runs,
-                    created_at, updated_at,
+                    id,
+                    name,
+                    schedule,
+                    action,
+                    status,
+                    last_run,
+                    next_run,
+                    run_count,
+                    max_runs,
+                    created_at,
+                    updated_at,
                 })
             })
             .collect();
@@ -261,11 +312,14 @@ impl SchedulerEngine {
         for (id, sched_json, run_count, max_runs) in due {
             let schedule: Schedule = match serde_json::from_str(&sched_json) {
                 Ok(s) => s,
-                Err(e) => { error!(job_id = %id, "bad schedule JSON: {e}"); continue; }
+                Err(e) => {
+                    error!(job_id = %id, "bad schedule JSON: {e}");
+                    continue;
+                }
             };
 
             let new_count = run_count + 1;
-            let exhausted = max_runs.map_or(false, |m| new_count >= m);
+            let exhausted = max_runs.is_some_and(|m| new_count >= m);
             let next = if exhausted {
                 None
             } else {

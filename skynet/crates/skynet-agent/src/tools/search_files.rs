@@ -95,10 +95,8 @@ fn search_dir(
         Err(_) => return,
     };
 
-    let mut entries: Vec<std::path::PathBuf> = read_dir
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .collect();
+    let mut entries: Vec<std::path::PathBuf> =
+        read_dir.filter_map(|e| e.ok()).map(|e| e.path()).collect();
 
     // Deterministic traversal order.
     entries.sort();

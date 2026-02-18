@@ -62,13 +62,26 @@ pub fn update_user(conn: &Connection, user: &User) -> Result<()> {
             tokens_used_today=?17, tokens_reset_date=?18, last_seen_at=?19, updated_at=?20
          WHERE id=?1",
         params![
-            user.id, user.display_name, user.role.to_string(),
-            user.language, user.tone, interests_json, user.age, user.timezone,
-            user.can_install_software as i32, user.can_use_browser as i32,
-            user.can_exec_commands as i32, user.content_filter.to_string(),
-            user.max_tokens_per_day, user.requires_admin_approval as i32,
-            user.total_messages, user.total_tokens_used, user.tokens_used_today,
-            user.tokens_reset_date, user.last_seen_at, now,
+            user.id,
+            user.display_name,
+            user.role.to_string(),
+            user.language,
+            user.tone,
+            interests_json,
+            user.age,
+            user.timezone,
+            user.can_install_software as i32,
+            user.can_use_browser as i32,
+            user.can_exec_commands as i32,
+            user.content_filter.to_string(),
+            user.max_tokens_per_day,
+            user.requires_admin_approval as i32,
+            user.total_messages,
+            user.total_tokens_used,
+            user.tokens_used_today,
+            user.tokens_reset_date,
+            user.last_seen_at,
+            now,
         ],
     )?;
     Ok(())
@@ -98,8 +111,14 @@ pub fn add_identity(
             (id, user_id, channel, identifier, verified, linked_by, linked_at, created_at)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
         params![
-            identity.id, identity.user_id, identity.channel, identity.identifier,
-            identity.verified as i32, identity.linked_by, identity.linked_at, identity.created_at,
+            identity.id,
+            identity.user_id,
+            identity.channel,
+            identity.identifier,
+            identity.verified as i32,
+            identity.linked_by,
+            identity.linked_at,
+            identity.created_at,
         ],
     )?;
     Ok(identity)

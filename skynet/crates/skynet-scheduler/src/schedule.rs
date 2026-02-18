@@ -12,19 +12,25 @@ pub fn compute_next_run(schedule: &Schedule, from: DateTime<Utc>) -> Option<Date
     match schedule {
         Schedule::Once { at } => {
             // Fire only if the instant is still in the future.
-            if *at > from { Some(*at) } else { None }
+            if *at > from {
+                Some(*at)
+            } else {
+                None
+            }
         }
 
-        Schedule::Interval { every_secs } => {
-            Some(from + Duration::seconds(*every_secs as i64))
-        }
+        Schedule::Interval { every_secs } => Some(from + Duration::seconds(*every_secs as i64)),
 
         Schedule::Daily { hour, minute } => {
             // Build today's candidate at HH:MM:00 UTC.
             let candidate = Utc
                 .with_ymd_and_hms(
-                    from.year(), from.month(), from.day(),
-                    *hour as u32, *minute as u32, 0,
+                    from.year(),
+                    from.month(),
+                    from.day(),
+                    *hour as u32,
+                    *minute as u32,
+                    0,
                 )
                 .single()?;
             if candidate > from {
@@ -51,8 +57,12 @@ pub fn compute_next_run(schedule: &Schedule, from: DateTime<Utc>) -> Option<Date
 
             let candidate = Utc
                 .with_ymd_and_hms(
-                    candidate_day.year(), candidate_day.month(), candidate_day.day(),
-                    *hour as u32, *minute as u32, 0,
+                    candidate_day.year(),
+                    candidate_day.month(),
+                    candidate_day.day(),
+                    *hour as u32,
+                    *minute as u32,
+                    0,
                 )
                 .single()?;
 

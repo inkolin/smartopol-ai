@@ -130,9 +130,8 @@ impl TerminalManager {
 
         // Safety gate — fast path for explicit admin bypass.
         if !options.skip_safety {
-            safety::check_command(command).map_err(|reason| TerminalError::CommandBlocked {
-                reason,
-            })?;
+            safety::check_command(command)
+                .map_err(|reason| TerminalError::CommandBlocked { reason })?;
         }
 
         let timeout_secs = options.effective_timeout_secs();
@@ -169,7 +168,11 @@ impl TerminalManager {
                     &strip_text(&output.stderr),
                     options.max_output_chars,
                 );
-                Ok(ExecResult { exit_code, stdout, stderr })
+                Ok(ExecResult {
+                    exit_code,
+                    stdout,
+                    stderr,
+                })
             }
 
             // wait_with_output() returned an I/O error.
@@ -221,9 +224,8 @@ impl TerminalManager {
     pub async fn exec_background(&mut self, command: &str) -> Result<JobId> {
         // Safety check always runs for background jobs — there is no skip_safety
         // equivalent here because background jobs are harder to interrupt.
-        safety::check_command(command).map_err(|reason| TerminalError::CommandBlocked {
-            reason,
-        })?;
+        safety::check_command(command)
+            .map_err(|reason| TerminalError::CommandBlocked { reason })?;
 
         let id = JobId::new();
         let job = Arc::new(Mutex::new(BackgroundJob::new(id.clone(), command)));
@@ -251,29 +253,31 @@ impl TerminalManager {
                     });
                     warn!("Background job spawn failed: {e}");
                 }
-                Ok(child) => {
-                    match child.wait_with_output().await {
-                        Ok(output) => {
-                            let exit_code = output.status.code().unwrap_or(-1);
-                            let stdout = strip_text(&output.stdout);
-                            let stderr = strip_text(&output.stderr);
+                Ok(child) => match child.wait_with_output().await {
+                    Ok(output) => {
+                        let exit_code = output.status.code().unwrap_or(-1);
+                        let stdout = strip_text(&output.stdout);
+                        let stderr = strip_text(&output.stderr);
 
-                            let mut guard = job_handle.lock().unwrap();
-                            guard.status = JobStatus::Completed;
-                            guard.result = Some(ExecResult { exit_code, stdout, stderr });
-                        }
-                        Err(e) => {
-                            let mut guard = job_handle.lock().unwrap();
-                            guard.status = JobStatus::Failed;
-                            guard.result = Some(ExecResult {
-                                exit_code: -1,
-                                stdout: String::new(),
-                                stderr: format!("wait failed: {e}"),
-                            });
-                            warn!("Background job wait failed: {e}");
-                        }
+                        let mut guard = job_handle.lock().unwrap();
+                        guard.status = JobStatus::Completed;
+                        guard.result = Some(ExecResult {
+                            exit_code,
+                            stdout,
+                            stderr,
+                        });
                     }
-                }
+                    Err(e) => {
+                        let mut guard = job_handle.lock().unwrap();
+                        guard.status = JobStatus::Failed;
+                        guard.result = Some(ExecResult {
+                            exit_code: -1,
+                            stdout: String::new(),
+                            stderr: format!("wait failed: {e}"),
+                        });
+                        warn!("Background job wait failed: {e}");
+                    }
+                },
             }
         });
 

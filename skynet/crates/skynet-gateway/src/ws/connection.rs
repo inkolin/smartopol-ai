@@ -12,7 +12,7 @@ use crate::ws::message;
 
 /// WS connection states — linear progression, no backwards transitions.
 pub enum ConnState {
-    AwaitingConnect { nonce: String },
+    AwaitingConnect { _nonce: String },
     Authenticated,
     Closing,
 }
@@ -39,17 +39,15 @@ async fn run_connection(socket: WebSocket, state: Arc<AppState>) {
     if tx.send(Message::Text(challenge.into())).await.is_err() {
         return;
     }
-    let mut conn_state = ConnState::AwaitingConnect { nonce };
+    let mut conn_state = ConnState::AwaitingConnect { _nonce: nonce };
 
     // handshake must complete within 10s
-    let deadline = tokio::time::Instant::now()
-        + std::time::Duration::from_millis(HANDSHAKE_TIMEOUT_MS);
+    let deadline =
+        tokio::time::Instant::now() + std::time::Duration::from_millis(HANDSHAKE_TIMEOUT_MS);
     let mut handshake_timer = Box::pin(tokio::time::sleep_until(deadline));
 
     // heartbeat tick after auth
-    let mut tick = tokio::time::interval(
-        std::time::Duration::from_secs(HEARTBEAT_INTERVAL_SECS),
-    );
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {

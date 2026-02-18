@@ -6,10 +6,7 @@ use crate::stream::{parse_sse_line, SseParsed, StreamEvent};
 
 /// Parse Anthropic streaming SSE response and emit StreamEvents.
 /// Reads from a reqwest byte stream, parses SSE lines, emits events.
-pub async fn process_stream(
-    resp: reqwest::Response,
-    tx: mpsc::Sender<StreamEvent>,
-) {
+pub async fn process_stream(resp: reqwest::Response, tx: mpsc::Sender<StreamEvent>) {
     use futures_util::StreamExt;
 
     let mut current_event = String::new();
@@ -32,7 +29,11 @@ pub async fn process_stream(
         let chunk = match chunk {
             Ok(c) => c,
             Err(e) => {
-                let _ = tx.send(StreamEvent::Error { message: e.to_string() }).await;
+                let _ = tx
+                    .send(StreamEvent::Error {
+                        message: e.to_string(),
+                    })
+                    .await;
                 return;
             }
         };
@@ -125,10 +126,8 @@ fn parse_data_block(
             if let Ok(block_start) = serde_json::from_str::<ContentBlockStart>(data) {
                 *current_block_type = block_start.content_block.block_type.clone();
                 if block_start.content_block.block_type == "tool_use" {
-                    *tool_use_id =
-                        block_start.content_block.id.unwrap_or_default();
-                    *tool_use_name =
-                        block_start.content_block.name.unwrap_or_default();
+                    *tool_use_id = block_start.content_block.id.unwrap_or_default();
+                    *tool_use_name = block_start.content_block.name.unwrap_or_default();
                     tool_use_input_json.clear();
                 }
             }
@@ -169,10 +168,8 @@ fn parse_data_block(
             // When a tool_use block closes, emit a ToolUse event with the
             // fully accumulated JSON input.
             if current_block_type == "tool_use" {
-                let input = serde_json::from_str::<serde_json::Value>(
-                    tool_use_input_json.as_str(),
-                )
-                .unwrap_or(serde_json::Value::Object(Default::default()));
+                let input = serde_json::from_str::<serde_json::Value>(tool_use_input_json.as_str())
+                    .unwrap_or(serde_json::Value::Object(Default::default()));
 
                 let event = StreamEvent::ToolUse {
                     id: std::mem::take(tool_use_id),

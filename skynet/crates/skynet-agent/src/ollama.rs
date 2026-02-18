@@ -15,8 +15,7 @@ impl OllamaProvider {
     pub fn new(base_url: Option<String>) -> Self {
         Self {
             client: reqwest::Client::new(),
-            base_url: base_url
-                .unwrap_or_else(|| "http://localhost:11434".to_string()),
+            base_url: base_url.unwrap_or_else(|| "http://localhost:11434".to_string()),
         }
     }
 }
@@ -53,7 +52,10 @@ impl LlmProvider for OllamaProvider {
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
             warn!(status, body = %text, "Ollama API error");
-            return Err(ProviderError::Api { status, message: text });
+            return Err(ProviderError::Api {
+                status,
+                message: text,
+            });
         }
 
         let api_resp: ApiResponse = resp
@@ -93,7 +95,10 @@ impl LlmProvider for OllamaProvider {
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
             warn!(status, body = %text, "Ollama streaming API error");
-            return Err(ProviderError::Api { status, message: text });
+            return Err(ProviderError::Api {
+                status,
+                message: text,
+            });
         }
 
         process_ollama_stream(resp, tx).await;
@@ -130,7 +135,11 @@ fn parse_response(resp: ApiResponse) -> ChatResponse {
     let content = resp.message.content;
     let tokens_in = resp.prompt_eval_count.unwrap_or(0);
     let tokens_out = resp.eval_count.unwrap_or(0);
-    let stop_reason = if resp.done { "stop".to_string() } else { String::new() };
+    let stop_reason = if resp.done {
+        "stop".to_string()
+    } else {
+        String::new()
+    };
 
     ChatResponse {
         content,
@@ -159,7 +168,11 @@ async fn process_ollama_stream(resp: reqwest::Response, tx: mpsc::Sender<StreamE
         let chunk = match chunk {
             Ok(c) => c,
             Err(e) => {
-                let _ = tx.send(StreamEvent::Error { message: e.to_string() }).await;
+                let _ = tx
+                    .send(StreamEvent::Error {
+                        message: e.to_string(),
+                    })
+                    .await;
                 return;
             }
         };
@@ -191,9 +204,7 @@ async fn process_ollama_stream(resp: reqwest::Response, tx: mpsc::Sender<StreamE
                         // final chunk — collect token counts and stop reason
                         tokens_in = chunk_data.prompt_eval_count.unwrap_or(0);
                         tokens_out = chunk_data.eval_count.unwrap_or(0);
-                        stop_reason = chunk_data
-                            .done_reason
-                            .unwrap_or_else(|| "stop".to_string());
+                        stop_reason = chunk_data.done_reason.unwrap_or_else(|| "stop".to_string());
                     } else {
                         // incremental text delta
                         let text = chunk_data.message.content;

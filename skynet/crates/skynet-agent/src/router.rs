@@ -15,7 +15,10 @@ pub struct ProviderSlot {
 
 impl ProviderSlot {
     pub fn new(provider: Box<dyn LlmProvider>, max_retries: u32) -> Self {
-        Self { provider, max_retries }
+        Self {
+            provider,
+            max_retries,
+        }
     }
 }
 
@@ -33,7 +36,10 @@ impl ProviderRouter {
     /// Create a new router with the given priority-ordered provider slots.
     /// At least one slot is required.
     pub fn new(slots: Vec<ProviderSlot>) -> Self {
-        assert!(!slots.is_empty(), "ProviderRouter requires at least one provider slot");
+        assert!(
+            !slots.is_empty(),
+            "ProviderRouter requires at least one provider slot"
+        );
         Self { slots }
     }
 }
@@ -96,9 +102,8 @@ impl LlmProvider for ProviderRouter {
         }
 
         // all providers failed — return the last recorded error
-        Err(last_err.unwrap_or_else(|| {
-            ProviderError::Unavailable("all providers failed".to_string())
-        }))
+        Err(last_err
+            .unwrap_or_else(|| ProviderError::Unavailable("all providers failed".to_string())))
     }
 
     async fn send_stream(
@@ -154,16 +159,15 @@ impl LlmProvider for ProviderRouter {
             );
         }
 
-        Err(last_err.unwrap_or_else(|| {
-            ProviderError::Unavailable("all providers failed".to_string())
-        }))
+        Err(last_err
+            .unwrap_or_else(|| ProviderError::Unavailable("all providers failed".to_string())))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::{ChatRequest, ChatResponse, Role, Message};
+    use crate::provider::{ChatRequest, ChatResponse, Message, Role};
     use async_trait::async_trait;
 
     struct AlwaysFail;
@@ -174,7 +178,9 @@ mod tests {
             "always-fail"
         }
         async fn send(&self, _req: &ChatRequest) -> Result<ChatResponse, ProviderError> {
-            Err(ProviderError::Unavailable("intentional failure".to_string()))
+            Err(ProviderError::Unavailable(
+                "intentional failure".to_string(),
+            ))
         }
     }
 
@@ -202,7 +208,10 @@ mod tests {
             model: "test-model".to_string(),
             system: "You are a test.".to_string(),
             system_prompt: None,
-            messages: vec![Message { role: Role::User, content: "hello".to_string() }],
+            messages: vec![Message {
+                role: Role::User,
+                content: "hello".to_string(),
+            }],
             max_tokens: 64,
             stream: false,
             thinking: None,

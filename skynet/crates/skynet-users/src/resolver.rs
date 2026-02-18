@@ -18,7 +18,10 @@ const CACHE_MAX: usize = 256;
 pub enum ResolvedUser {
     Known(User),
     /// Auto-created on first contact. Caller should trigger onboarding flow.
-    NewlyCreated { user: User, needs_onboarding: bool },
+    NewlyCreated {
+        user: User,
+        needs_onboarding: bool,
+    },
 }
 
 impl ResolvedUser {
@@ -163,9 +166,9 @@ impl UserResolver {
         let mut cache = self.cache.lock().unwrap();
         let mut order = self.cache_order.lock().unwrap();
 
-        if cache.contains_key(&key) {
+        if let std::collections::hash_map::Entry::Occupied(mut e) = cache.entry(key.clone()) {
             // Refresh value in-place; no order change needed for our simple eviction.
-            cache.insert(key, user_id);
+            e.insert(user_id);
             return;
         }
 

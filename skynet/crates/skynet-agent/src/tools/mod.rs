@@ -25,11 +25,17 @@ pub struct ToolResult {
 
 impl ToolResult {
     pub fn success(content: impl Into<String>) -> Self {
-        Self { content: content.into(), is_error: false }
+        Self {
+            content: content.into(),
+            is_error: false,
+        }
     }
 
     pub fn error(message: impl Into<String>) -> Self {
-        Self { content: message.into(), is_error: true }
+        Self {
+            content: message.into(),
+            is_error: true,
+        }
     }
 }
 

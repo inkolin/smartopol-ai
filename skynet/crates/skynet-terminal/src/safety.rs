@@ -121,22 +121,40 @@ fn is_allowlisted(lower: &str) -> bool {
 /// piping into a shell interpreter.
 const DENYLIST: &[(&str, &str)] = &[
     // Recursive forced removal of root or home — most dangerous single command.
-    ("rm -rf /", "Destructive: recursive forced removal from root or home"),
-    ("rm -rf /*", "Destructive: recursive forced removal of all root children"),
+    (
+        "rm -rf /",
+        "Destructive: recursive forced removal from root or home",
+    ),
+    (
+        "rm -rf /*",
+        "Destructive: recursive forced removal of all root children",
+    ),
     // Fork bomb — exhausts PIDs and memory, requires reboot to recover.
     (":(){ :|:& };:", "Fork bomb: will exhaust system resources"),
     // Pipe-to-shell: any pipeline that feeds a shell interpreter is unsafe
     // regardless of the fetcher used (curl, wget, nc, bash process substitution, …).
     ("| sh", "Unsafe: piping content directly into sh"),
     ("| bash", "Unsafe: piping content directly into bash"),
-    ("|sh", "Unsafe: piping content directly into sh (no space variant)"),
-    ("|bash", "Unsafe: piping content directly into bash (no space variant)"),
+    (
+        "|sh",
+        "Unsafe: piping content directly into sh (no space variant)",
+    ),
+    (
+        "|bash",
+        "Unsafe: piping content directly into bash (no space variant)",
+    ),
     // Low-level disk access / formatting — instant data loss.
     ("dd if=", "Destructive: raw disk I/O via dd"),
-    ("mkfs", "Destructive: creates a new filesystem, wiping existing data"),
+    (
+        "mkfs",
+        "Destructive: creates a new filesystem, wiping existing data",
+    ),
     ("> /dev/sda", "Destructive: writes directly to block device"),
     // Chmod 777 on / — breaks system security model.
-    ("chmod 777 /", "Unsafe: world-writable permissions on root filesystem"),
+    (
+        "chmod 777 /",
+        "Unsafe: world-writable permissions on root filesystem",
+    ),
     // Chown on system-owned paths.
     ("chown / ", "Unsafe: changing ownership of root filesystem"),
     ("chown -r /", "Unsafe: recursive chown from root"),
@@ -152,10 +170,19 @@ const DENYLIST: &[(&str, &str)] = &[
     ("> /etc/", "Destructive: overwrites a file under /etc"),
     (">> /etc/", "Destructive: appends to a file under /etc"),
     // Python one-liners that invoke os.system — shell-escape via the REPL.
-    ("import os; os.system", "Unsafe: Python os.system shell escape"),
-    ("__import__('os')", "Unsafe: Python dynamic os import (shell escape pattern)"),
+    (
+        "import os; os.system",
+        "Unsafe: Python os.system shell escape",
+    ),
+    (
+        "__import__('os')",
+        "Unsafe: Python dynamic os import (shell escape pattern)",
+    ),
     // Blanket sudo block — privilege escalation gated by permissions later.
-    ("sudo", "Blocked: sudo requires elevated permissions (not yet granted)"),
+    (
+        "sudo",
+        "Blocked: sudo requires elevated permissions (not yet granted)",
+    ),
 ];
 
 // ---------------------------------------------------------------------------
@@ -278,8 +305,7 @@ mod tests {
 
     #[test]
     fn deny_python_os_system() {
-        let result =
-            check_command("python3 -c \"import os; os.system('rm -rf /')\"");
+        let result = check_command("python3 -c \"import os; os.system('rm -rf /')\"");
         assert!(result.is_err());
     }
 

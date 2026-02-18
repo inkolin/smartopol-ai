@@ -1,5 +1,5 @@
-use std::fmt;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// Controls how much token budget the model may spend on internal reasoning
 /// before generating the visible response.
@@ -40,7 +40,7 @@ impl ThinkingLevel {
     /// Parse from a string slug.  Case-insensitive.
     ///
     /// Accepted values: `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`.
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "off" => Some(ThinkingLevel::Off),
             "minimal" => Some(ThinkingLevel::Minimal),
@@ -56,7 +56,7 @@ impl ThinkingLevel {
 /// Remove thinking blocks from conversation messages before re-sending to the LLM.
 /// Anthropic's API rejects requests that include thinking content blocks from previous turns.
 /// The assistant's text content is preserved; only thinking/reasoning blocks are removed.
-pub fn strip_thinking_blocks(messages: &mut Vec<serde_json::Value>) {
+pub fn strip_thinking_blocks(messages: &mut [serde_json::Value]) {
     for msg in messages.iter_mut() {
         if msg.get("role").and_then(|r| r.as_str()) != Some("assistant") {
             continue;
@@ -66,9 +66,7 @@ pub fn strip_thinking_blocks(messages: &mut Vec<serde_json::Value>) {
             if let Some(blocks) = content.as_array() {
                 let filtered: Vec<serde_json::Value> = blocks
                     .iter()
-                    .filter(|block| {
-                        block.get("type").and_then(|t| t.as_str()) != Some("thinking")
-                    })
+                    .filter(|block| block.get("type").and_then(|t| t.as_str()) != Some("thinking"))
                     .cloned()
                     .collect();
                 *content = serde_json::Value::Array(filtered);
@@ -124,9 +122,13 @@ mod tests {
             ("OFF", ThinkingLevel::Off),
             ("HIGH", ThinkingLevel::High),
         ] {
-            assert_eq!(ThinkingLevel::from_str(input), Some(expected), "input: {input}");
+            assert_eq!(
+                ThinkingLevel::parse(input),
+                Some(expected),
+                "input: {input}"
+            );
         }
-        assert_eq!(ThinkingLevel::from_str("unknown"), None);
+        assert_eq!(ThinkingLevel::parse("unknown"), None);
     }
 
     #[test]
@@ -140,7 +142,7 @@ mod tests {
             ThinkingLevel::XHigh,
         ] {
             let s = level.to_string();
-            assert_eq!(ThinkingLevel::from_str(&s), Some(level));
+            assert_eq!(ThinkingLevel::parse(&s), Some(level));
         }
     }
 
@@ -172,14 +174,12 @@ mod tests {
 
     #[test]
     fn strip_leaves_user_messages_unchanged() {
-        let mut messages = vec![
-            serde_json::json!({
-                "role": "user",
-                "content": [
-                    { "type": "text", "text": "Hello" }
-                ]
-            }),
-        ];
+        let mut messages = vec![serde_json::json!({
+            "role": "user",
+            "content": [
+                { "type": "text", "text": "Hello" }
+            ]
+        })];
         super::strip_thinking_blocks(&mut messages);
         let content = messages[0]["content"].as_array().unwrap();
         assert_eq!(content.len(), 1);
@@ -188,14 +188,12 @@ mod tests {
 
     #[test]
     fn strip_noop_when_no_thinking_blocks() {
-        let mut messages = vec![
-            serde_json::json!({
-                "role": "assistant",
-                "content": [
-                    { "type": "text", "text": "Sure, here is the answer." }
-                ]
-            }),
-        ];
+        let mut messages = vec![serde_json::json!({
+            "role": "assistant",
+            "content": [
+                { "type": "text", "text": "Sure, here is the answer." }
+            ]
+        })];
         super::strip_thinking_blocks(&mut messages);
         let content = messages[0]["content"].as_array().unwrap();
         assert_eq!(content.len(), 1);
@@ -205,12 +203,10 @@ mod tests {
     #[test]
     fn strip_handles_string_content_untouched() {
         // When content is a plain string (not an array of blocks), nothing should crash.
-        let mut messages = vec![
-            serde_json::json!({
-                "role": "assistant",
-                "content": "plain text response"
-            }),
-        ];
+        let mut messages = vec![serde_json::json!({
+            "role": "assistant",
+            "content": "plain text response"
+        })];
         super::strip_thinking_blocks(&mut messages);
         assert_eq!(messages[0]["content"], "plain text response");
     }

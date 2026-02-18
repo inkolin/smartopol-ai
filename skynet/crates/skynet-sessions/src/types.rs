@@ -22,7 +22,11 @@ pub struct SessionKey {
 
 impl SessionKey {
     /// Construct a new key from its three parts.
-    pub fn new(user_id: impl Into<String>, agent_id: impl Into<String>, name: impl Into<String>) -> Self {
+    pub fn new(
+        user_id: impl Into<String>,
+        agent_id: impl Into<String>,
+        name: impl Into<String>,
+    ) -> Self {
         Self {
             user_id: user_id.into(),
             agent_id: agent_id.into(),
@@ -34,7 +38,10 @@ impl SessionKey {
     ///
     /// Format: `user:{user_id}:agent:{agent_id}:{name}`
     pub fn format(&self) -> String {
-        format!("user:{}:agent:{}:{}", self.user_id, self.agent_id, self.name)
+        format!(
+            "user:{}:agent:{}:{}",
+            self.user_id, self.agent_id, self.name
+        )
     }
 
     /// Parse a wire-format key string back into a `SessionKey`.
@@ -43,15 +50,15 @@ impl SessionKey {
     /// where `<name>` may itself contain colons.
     pub fn parse(s: &str) -> Result<Self> {
         // Strip leading "user:" prefix
-        let rest = s.strip_prefix("user:").ok_or_else(|| {
-            SessionError::InvalidKey(format!("missing 'user:' prefix: {s}"))
-        })?;
+        let rest = s
+            .strip_prefix("user:")
+            .ok_or_else(|| SessionError::InvalidKey(format!("missing 'user:' prefix: {s}")))?;
 
         // Find ":agent:" separator — the user_id ends at that point
         let agent_marker = ":agent:";
-        let agent_pos = rest.find(agent_marker).ok_or_else(|| {
-            SessionError::InvalidKey(format!("missing ':agent:' segment: {s}"))
-        })?;
+        let agent_pos = rest
+            .find(agent_marker)
+            .ok_or_else(|| SessionError::InvalidKey(format!("missing ':agent:' segment: {s}")))?;
 
         let user_id = &rest[..agent_pos];
         // Skip past ":agent:"

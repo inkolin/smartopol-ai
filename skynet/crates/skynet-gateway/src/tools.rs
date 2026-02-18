@@ -7,8 +7,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use skynet_agent::tools::{self, Tool, ToolResult};
 use skynet_agent::provider::ToolDefinition;
+use skynet_agent::tools::{self, Tool, ToolResult};
 
 use crate::app::AppState;
 

@@ -52,13 +52,18 @@ impl LlmProvider for OpenAiProvider {
                 .and_then(|v| v.parse::<u64>().ok())
                 .map(|s| s * 1000) // convert seconds to ms
                 .unwrap_or(5000);
-            return Err(ProviderError::RateLimited { retry_after_ms: retry });
+            return Err(ProviderError::RateLimited {
+                retry_after_ms: retry,
+            });
         }
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
             warn!(status, body = %text, "OpenAI API error");
-            return Err(ProviderError::Api { status, message: text });
+            return Err(ProviderError::Api {
+                status,
+                message: text,
+            });
         }
 
         let api_resp: ApiResponse = resp
@@ -97,13 +102,18 @@ impl LlmProvider for OpenAiProvider {
                 .and_then(|v| v.parse::<u64>().ok())
                 .map(|s| s * 1000)
                 .unwrap_or(5000);
-            return Err(ProviderError::RateLimited { retry_after_ms: retry });
+            return Err(ProviderError::RateLimited {
+                retry_after_ms: retry,
+            });
         }
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
             warn!(status, body = %text, "OpenAI streaming API error");
-            return Err(ProviderError::Api { status, message: text });
+            return Err(ProviderError::Api {
+                status,
+                message: text,
+            });
         }
 
         process_openai_stream(resp, req.model.clone(), tx).await;
@@ -140,15 +150,17 @@ fn parse_response(resp: ApiResponse) -> ChatResponse {
         .and_then(|c| c.message.content.as_deref())
         .unwrap_or("")
         .to_string();
-    let stop_reason = choice
-        .and_then(|c| c.finish_reason)
-        .unwrap_or_default();
+    let stop_reason = choice.and_then(|c| c.finish_reason).unwrap_or_default();
 
     ChatResponse {
         content,
         model: resp.model,
         tokens_in: resp.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
-        tokens_out: resp.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
+        tokens_out: resp
+            .usage
+            .as_ref()
+            .map(|u| u.completion_tokens)
+            .unwrap_or(0),
         stop_reason,
         tool_calls: Vec::new(),
     }
@@ -175,7 +187,11 @@ async fn process_openai_stream(
         let chunk = match chunk {
             Ok(c) => c,
             Err(e) => {
-                let _ = tx.send(StreamEvent::Error { message: e.to_string() }).await;
+                let _ = tx
+                    .send(StreamEvent::Error {
+                        message: e.to_string(),
+                    })
+                    .await;
                 return;
             }
         };
@@ -196,8 +212,8 @@ async fn process_openai_stream(
                 continue;
             }
 
-            if let Some(parsed) = parse_sse_line(line) {
-                if let SseParsed::Data(data) = parsed {
+            if let Some(SseParsed::Data(data)) = parse_sse_line(line) {
+                {
                     // OpenAI signals end-of-stream with a literal `[DONE]` data value
                     if data.trim() == "[DONE]" {
                         break;
@@ -220,7 +236,9 @@ async fn process_openai_stream(
                                 if !content.is_empty() {
                                     debug!(len = content.len(), "openai stream text delta");
                                     if tx
-                                        .send(StreamEvent::TextDelta { text: content.clone() })
+                                        .send(StreamEvent::TextDelta {
+                                            text: content.clone(),
+                                        })
                                         .await
                                         .is_err()
                                     {

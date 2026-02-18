@@ -21,12 +21,20 @@ pub struct ConnectParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "kebab-case")]
 pub enum AuthPayload {
-    Token { token: String },
-    Password { password: String },
+    Token {
+        token: String,
+    },
+    Password {
+        password: String,
+    },
     #[serde(rename = "tailscale-whois")]
     TailscaleWhois,
-    DeviceToken { device_token: String },
-    TrustedProxy { forwarded_user: String },
+    DeviceToken {
+        device_token: String,
+    },
+    TrustedProxy {
+        forwarded_user: String,
+    },
     None,
 }
 

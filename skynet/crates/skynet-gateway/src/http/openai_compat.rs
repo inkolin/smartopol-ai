@@ -34,9 +34,13 @@ pub async fn chat_completions(
     info!(model = %req.model, stream = req.stream, "OpenAI compat request");
 
     if req.stream {
-        Ok(handle_streaming(&state, &user_message, &req.model).await.into_response())
+        Ok(handle_streaming(&state, &user_message, &req.model)
+            .await
+            .into_response())
     } else {
-        Ok(handle_non_streaming(&state, &user_message, &req.model).await.into_response())
+        Ok(handle_non_streaming(&state, &user_message, &req.model)
+            .await
+            .into_response())
     }
 }
 
@@ -159,6 +163,7 @@ async fn handle_streaming(
 // ── OpenAI API types ─────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 pub struct OpenAiRequest {
     pub model: String,
     pub messages: Vec<OpenAiMessage>,

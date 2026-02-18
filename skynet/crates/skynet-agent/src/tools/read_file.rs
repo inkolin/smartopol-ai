@@ -56,12 +56,19 @@ impl Tool for ReadFileTool {
             .get("offset")
             .and_then(|v| v.as_u64())
             .map(|v| v.saturating_sub(1) as usize); // convert to 0-based
-        let limit = input.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
+        let limit = input
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize);
 
         let result = if offset.is_some() || limit.is_some() {
             let start = offset.unwrap_or(0);
             let lines: Vec<&str> = content.lines().skip(start).collect();
-            let lines = if let Some(n) = limit { &lines[..n.min(lines.len())] } else { &lines };
+            let lines = if let Some(n) = limit {
+                &lines[..n.min(lines.len())]
+            } else {
+                &lines
+            };
             lines.join("\n")
         } else {
             content

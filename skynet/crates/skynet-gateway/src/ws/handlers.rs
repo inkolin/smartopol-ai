@@ -114,10 +114,7 @@ pub async fn handle_memory_search(
     const DEFAULT_LIMIT: usize = 10;
     const MAX_LIMIT: usize = 50;
 
-    let query = match params
-        .and_then(|p| p.get("query"))
-        .and_then(|v| v.as_str())
-    {
+    let query = match params.and_then(|p| p.get("query")).and_then(|v| v.as_str()) {
         Some(q) => q,
         None => return ResFrame::err(req_id, "INVALID_PARAMS", "missing 'query' field"),
     };
@@ -194,10 +191,14 @@ pub async fn handle_memory_learn(
     // Placeholder until user resolution is wired (Phase 3).
     let user_id = "anonymous";
 
-    match app
-        .memory
-        .learn(user_id, category, key, value, confidence, MemorySource::UserSaid)
-    {
+    match app.memory.learn(
+        user_id,
+        category,
+        key,
+        value,
+        confidence,
+        MemorySource::UserSaid,
+    ) {
         Ok(()) => ResFrame::ok(req_id, serde_json::json!({ "ok": true })),
         Err(e) => {
             warn!(error = %e, "memory.learn failed");
@@ -298,7 +299,9 @@ pub async fn handle_cron_add(
     let schedule: Schedule = match p.get("schedule") {
         Some(v) => match serde_json::from_value(v.clone()) {
             Ok(s) => s,
-            Err(e) => return ResFrame::err(req_id, "INVALID_PARAMS", &format!("bad schedule: {e}")),
+            Err(e) => {
+                return ResFrame::err(req_id, "INVALID_PARAMS", &format!("bad schedule: {e}"))
+            }
         },
         None => return ResFrame::err(req_id, "INVALID_PARAMS", "missing 'schedule' field"),
     };
@@ -329,10 +332,7 @@ pub async fn handle_cron_remove(
     req_id: &str,
     app: &AppState,
 ) -> ResFrame {
-    let id = match params
-        .and_then(|p| p.get("id"))
-        .and_then(|v| v.as_str())
-    {
+    let id = match params.and_then(|p| p.get("id")).and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => s,
         _ => return ResFrame::err(req_id, "INVALID_PARAMS", "missing or empty 'id' field"),
     };
@@ -482,7 +482,13 @@ pub async fn handle_terminal_write(
 
     let session_id = match p.get("session_id").and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => SessionId::from(s),
-        _ => return ResFrame::err(req_id, "INVALID_PARAMS", "missing or empty 'session_id' field"),
+        _ => {
+            return ResFrame::err(
+                req_id,
+                "INVALID_PARAMS",
+                "missing or empty 'session_id' field",
+            )
+        }
     };
 
     let input = match p.get("input").and_then(|v| v.as_str()) {
@@ -518,7 +524,13 @@ pub async fn handle_terminal_read(
         .and_then(|v| v.as_str())
     {
         Some(s) if !s.is_empty() => SessionId::from(s),
-        _ => return ResFrame::err(req_id, "INVALID_PARAMS", "missing or empty 'session_id' field"),
+        _ => {
+            return ResFrame::err(
+                req_id,
+                "INVALID_PARAMS",
+                "missing or empty 'session_id' field",
+            )
+        }
     };
 
     match app.terminal.lock().await.read(&session_id).await {
@@ -549,7 +561,13 @@ pub async fn handle_terminal_kill(
         .and_then(|v| v.as_str())
     {
         Some(s) if !s.is_empty() => SessionId::from(s),
-        _ => return ResFrame::err(req_id, "INVALID_PARAMS", "missing or empty 'session_id' field"),
+        _ => {
+            return ResFrame::err(
+                req_id,
+                "INVALID_PARAMS",
+                "missing or empty 'session_id' field",
+            )
+        }
     };
 
     match app.terminal.lock().await.kill(&session_id).await {
@@ -614,10 +632,7 @@ pub async fn handle_terminal_job_status(
 ) -> ResFrame {
     use skynet_terminal::types::JobId;
 
-    let id = match params
-        .and_then(|p| p.get("id"))
-        .and_then(|v| v.as_str())
-    {
+    let id = match params.and_then(|p| p.get("id")).and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => JobId(s.to_string()),
         _ => return ResFrame::err(req_id, "INVALID_PARAMS", "missing or empty 'id' field"),
     };
@@ -655,10 +670,7 @@ pub async fn handle_terminal_job_kill(
 ) -> ResFrame {
     use skynet_terminal::types::JobId;
 
-    let id = match params
-        .and_then(|p| p.get("id"))
-        .and_then(|v| v.as_str())
-    {
+    let id = match params.and_then(|p| p.get("id")).and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => JobId(s.to_string()),
         _ => return ResFrame::err(req_id, "INVALID_PARAMS", "missing or empty 'id' field"),
     };

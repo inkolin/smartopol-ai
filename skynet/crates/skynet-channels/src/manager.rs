@@ -3,11 +3,7 @@ use std::collections::HashMap;
 use tokio::time::{sleep, Duration};
 use tracing::{error, info, warn};
 
-use crate::{
-    channel::Channel,
-    error::ChannelError,
-    types::ChannelStatus,
-};
+use crate::{channel::Channel, error::ChannelError, types::ChannelStatus};
 
 /// Minimum delay between reconnect attempts (seconds).
 const BACKOFF_BASE_SECS: u64 = 5;
@@ -102,10 +98,7 @@ impl Default for ChannelManager {
 /// Attempt to connect a single channel with exponential backoff and ±10 % jitter.
 ///
 /// Schedule: 5 s → 10 s → 20 s → … → 300 s (cap), up to [`MAX_ATTEMPTS`] tries.
-async fn connect_with_backoff(
-    name: &str,
-    channel: &mut dyn Channel,
-) -> Result<(), ChannelError> {
+async fn connect_with_backoff(name: &str, channel: &mut dyn Channel) -> Result<(), ChannelError> {
     let mut delay_secs = BACKOFF_BASE_SECS;
 
     for attempt in 1..=MAX_ATTEMPTS {

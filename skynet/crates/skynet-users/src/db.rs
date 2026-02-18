@@ -7,9 +7,8 @@ use crate::types::{ContentFilter, User};
 /// Centralised here so every query in this crate stays consistent.
 pub(crate) fn row_to_user(row: &rusqlite::Row<'_>) -> rusqlite::Result<User> {
     use std::str::FromStr;
-    let interests: Vec<String> = serde_json::from_str(
-        &row.get::<_, String>(5)?
-    ).unwrap_or_default();
+    let interests: Vec<String> =
+        serde_json::from_str(&row.get::<_, String>(5)?).unwrap_or_default();
     let role = UserRole::from_str(&row.get::<_, String>(2)?).unwrap_or_default();
     let content_filter = ContentFilter::from_str(&row.get::<_, String>(11)?).unwrap_or_default();
     Ok(User {

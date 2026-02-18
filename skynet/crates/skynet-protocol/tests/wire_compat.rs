@@ -88,5 +88,8 @@ fn hello_ok_protocol_version() {
 fn inbound_frame_rejects_non_req() {
     let json = r#"{"type":"event","event":"tick","payload":{}}"#;
     let frame: InboundFrame = serde_json::from_str(json).unwrap();
-    assert!(frame.as_req().is_none(), "event frame must not parse as req");
+    assert!(
+        frame.as_req().is_none(),
+        "event frame must not parse as req"
+    );
 }

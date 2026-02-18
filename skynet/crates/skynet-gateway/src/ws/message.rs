@@ -30,7 +30,7 @@ pub async fn handle(
     };
 
     match state {
-        ConnState::AwaitingConnect { nonce: _ } => handle_auth(conn_id, frame, tx, app).await,
+        ConnState::AwaitingConnect { .. } => handle_auth(conn_id, frame, tx, app).await,
         ConnState::Authenticated => handle_method(frame, tx, app).await,
         ConnState::Closing => ConnState::Closing,
     }
@@ -44,13 +44,17 @@ async fn handle_auth(
     app: &Arc<AppState>,
 ) -> ConnState {
     let Some(req) = frame.as_req() else {
-        return ConnState::AwaitingConnect { nonce: String::new() };
+        return ConnState::AwaitingConnect {
+            _nonce: String::new(),
+        };
     };
 
     if req.method != CONNECT {
         let res = ResFrame::err(&req.id, "PROTOCOL_ERROR", "must authenticate first");
         let _ = send::json(tx, &res).await;
-        return ConnState::AwaitingConnect { nonce: String::new() };
+        return ConnState::AwaitingConnect {
+            _nonce: String::new(),
+        };
     }
 
     let params: ConnectParams = match req.params.and_then(|p| serde_json::from_value(p).ok()) {
@@ -81,11 +85,7 @@ async fn handle_auth(
 
 /// Post-auth: dispatch method calls to handlers.
 /// Passes WS sink for methods that need to send intermediate events (streaming).
-async fn handle_method(
-    frame: InboundFrame,
-    tx: &mut WsSink,
-    app: &Arc<AppState>,
-) -> ConnState {
+async fn handle_method(frame: InboundFrame, tx: &mut WsSink, app: &Arc<AppState>) -> ConnState {
     if let Some(req) = frame.as_req() {
         let res = dispatch::route(&req.method, req.params.as_ref(), &req.id, app, tx).await;
         let _ = send::json(tx, &res).await;

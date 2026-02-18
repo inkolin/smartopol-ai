@@ -1,14 +1,17 @@
+use figment::{
+    providers::{Env, Format, Toml},
+    Figment,
+};
 use serde::{Deserialize, Serialize};
-use figment::{Figment, providers::{Format, Toml, Env}};
 
 // Protocol constants — must match OpenClaw wire protocol exactly
 pub const PROTOCOL_VERSION: u32 = 3;
 pub const DEFAULT_PORT: u16 = 18789;
 pub const DEFAULT_BIND: &str = "127.0.0.1";
-pub const MAX_PAYLOAD_BYTES: usize = 128 * 1024;    // 128 KB hard cap per frame
-pub const MAX_BUFFERED_BYTES: usize = 1024 * 1024;  // 1 MB: slow consumer threshold
-pub const HANDSHAKE_TIMEOUT_MS: u64 = 10_000;       // close if client doesn't auth in 10s
-pub const HEARTBEAT_INTERVAL_SECS: u64 = 30;        // tick event cadence
+pub const MAX_PAYLOAD_BYTES: usize = 128 * 1024; // 128 KB hard cap per frame
+pub const MAX_BUFFERED_BYTES: usize = 1024 * 1024; // 1 MB: slow consumer threshold
+pub const HANDSHAKE_TIMEOUT_MS: u64 = 10_000; // close if client doesn't auth in 10s
+pub const HEARTBEAT_INTERVAL_SECS: u64 = 30; // tick event cadence
 
 /// Top-level config (skynet.toml + SKYNET_* env overrides).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,7 +94,9 @@ pub struct DatabaseConfig {
 
 impl Default for DatabaseConfig {
     fn default() -> Self {
-        Self { path: default_db_path() }
+        Self {
+            path: default_db_path(),
+        }
     }
 }
 
@@ -172,12 +177,24 @@ pub struct WebhooksConfig {
     pub sources: Vec<WebhookSourceConfig>,
 }
 
-fn default_port() -> u16 { DEFAULT_PORT }
-fn default_bind() -> String { DEFAULT_BIND.to_string() }
-fn default_model() -> String { "claude-sonnet-4-6".to_string() }
-fn default_anthropic_base_url() -> String { "https://api.anthropic.com".to_string() }
-fn default_openai_base_url() -> String { "https://api.openai.com".to_string() }
-fn default_ollama_base_url() -> String { "http://localhost:11434".to_string() }
+fn default_port() -> u16 {
+    DEFAULT_PORT
+}
+fn default_bind() -> String {
+    DEFAULT_BIND.to_string()
+}
+fn default_model() -> String {
+    "claude-sonnet-4-6".to_string()
+}
+fn default_anthropic_base_url() -> String {
+    "https://api.anthropic.com".to_string()
+}
+fn default_openai_base_url() -> String {
+    "https://api.openai.com".to_string()
+}
+fn default_ollama_base_url() -> String {
+    "http://localhost:11434".to_string()
+}
 fn default_db_path() -> String {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     format!("{}/.skynet/skynet.db", home)

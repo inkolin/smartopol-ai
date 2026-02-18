@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use std::fmt;
+use uuid::Uuid;
 
 /// Unique identifier for a user (UUIDv7 — time-sortable for easier log correlation).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

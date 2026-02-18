@@ -73,7 +73,9 @@ impl AgentRuntime {
         user_context: Option<&str>,
         session_info: Option<&SessionInfo>,
     ) -> Result<ChatResponse, ProviderError> {
-        let req = self.build_request(user_message, user_context, session_info).await;
+        let req = self
+            .build_request(user_message, user_context, session_info)
+            .await;
         info!(
             model = %req.model, provider = %self.provider.name(),
             cached = req.system_prompt.is_some(), "processing chat request with context"
@@ -116,7 +118,9 @@ impl AgentRuntime {
         session_info: Option<&SessionInfo>,
         tx: mpsc::Sender<StreamEvent>,
     ) -> Result<(), ProviderError> {
-        let mut req = self.build_request(user_message, user_context, session_info).await;
+        let mut req = self
+            .build_request(user_message, user_context, session_info)
+            .await;
         req.stream = true;
         info!(
             model = %req.model, provider = %self.provider.name(),
@@ -158,7 +162,10 @@ impl AgentRuntime {
             model: self.default_model.clone(),
             system: plain,
             system_prompt: Some(system_prompt),
-            messages: vec![Message { role: Role::User, content: user_message.to_string() }],
+            messages: vec![Message {
+                role: Role::User,
+                content: user_message.to_string(),
+            }],
             max_tokens: 4096,
             stream: false,
             thinking: None,
@@ -172,7 +179,9 @@ impl AgentRuntime {
     /// callers with a resolved UserId may extend this in the future).
     #[cfg(feature = "hooks")]
     fn hook_llm_input(&self, req: &ChatRequest) {
-        let Some(engine) = self.hooks.clone() else { return };
+        let Some(engine) = self.hooks.clone() else {
+            return;
+        };
         let payload = serde_json::json!({
             "model": req.model,
             "system_prompt_len": req.system.len(),
@@ -187,7 +196,9 @@ impl AgentRuntime {
     /// Payload: model, tokens_in, tokens_out, latency_ms, stop_reason.
     #[cfg(feature = "hooks")]
     fn hook_llm_output(&self, model: &str, resp: &ChatResponse, latency_ms: u64) {
-        let Some(engine) = self.hooks.clone() else { return };
+        let Some(engine) = self.hooks.clone() else {
+            return;
+        };
         let payload = serde_json::json!({
             "model": model,
             "tokens_in": resp.tokens_in,
@@ -202,7 +213,9 @@ impl AgentRuntime {
     /// Emit LlmOutput after streaming success (token counts come via StreamEvent::Done).
     #[cfg(feature = "hooks")]
     fn hook_llm_stream_ok(&self, model: &str, latency_ms: u64) {
-        let Some(engine) = self.hooks.clone() else { return };
+        let Some(engine) = self.hooks.clone() else {
+            return;
+        };
         let payload = serde_json::json!({
             "model": model,
             "latency_ms": latency_ms,
@@ -216,7 +229,9 @@ impl AgentRuntime {
     /// Payload: model, error (Display string).
     #[cfg(feature = "hooks")]
     fn hook_llm_error(&self, model: &str, err: &ProviderError) {
-        let Some(engine) = self.hooks.clone() else { return };
+        let Some(engine) = self.hooks.clone() else {
+            return;
+        };
         let payload = serde_json::json!({ "model": model, "error": err.to_string() });
         let ctx = HookContext::new(HookEvent::LlmError, payload);
         tokio::spawn(async move { engine.emit_after(ctx) });

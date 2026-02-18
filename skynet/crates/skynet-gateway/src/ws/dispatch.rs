@@ -130,8 +130,12 @@ async fn handle_chat_send(
         .unwrap_or(true);
 
     // Resolve user memory context (None = anonymous / no context).
-    let channel = params.and_then(|p| p.get("channel")).and_then(|v| v.as_str());
-    let sender_id = params.and_then(|p| p.get("sender_id")).and_then(|v| v.as_str());
+    let channel = params
+        .and_then(|p| p.get("channel"))
+        .and_then(|v| v.as_str());
+    let sender_id = params
+        .and_then(|p| p.get("sender_id"))
+        .and_then(|v| v.as_str());
     let user_context = resolve_user_context(app, channel, sender_id);
 
     info!(

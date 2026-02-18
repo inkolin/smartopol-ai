@@ -33,10 +33,9 @@ pub enum StreamEvent {
 pub fn parse_sse_line(line: &str) -> Option<SseParsed> {
     if let Some(event_type) = line.strip_prefix("event: ") {
         Some(SseParsed::Event(event_type.to_string()))
-    } else if let Some(data) = line.strip_prefix("data: ") {
-        Some(SseParsed::Data(data.to_string()))
     } else {
-        None
+        line.strip_prefix("data: ")
+            .map(|data| SseParsed::Data(data.to_string()))
     }
 }
 

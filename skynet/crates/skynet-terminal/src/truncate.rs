@@ -44,9 +44,7 @@ pub fn truncate_output(output: &str, max_chars: usize) -> String {
     let tail: String = chars[total - half..].iter().collect();
     let omitted = total - max_chars;
 
-    format!(
-        "{head}\n\n... [OUTPUT TRUNCATED: {omitted} chars omitted] ...\n\n{tail}"
-    )
+    format!("{head}\n\n... [OUTPUT TRUNCATED: {omitted} chars omitted] ...\n\n{tail}")
 }
 
 // ---------------------------------------------------------------------------

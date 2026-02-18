@@ -97,7 +97,10 @@ pub async fn run_tool_loop(
         last_response = Some(response);
     }
 
-    warn!(max_iterations = MAX_ITERATIONS, "tool loop hit maximum iterations");
+    warn!(
+        max_iterations = MAX_ITERATIONS,
+        "tool loop hit maximum iterations"
+    );
 
     // If we have a last response use that, otherwise return an error.
     if let Some(resp) = last_response {

@@ -1,4 +1,7 @@
-use axum::{Router, routing::{get, post}};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use dashmap::DashMap;
 use skynet_agent::runtime::AgentRuntime;
 use skynet_core::config::SkynetConfig;

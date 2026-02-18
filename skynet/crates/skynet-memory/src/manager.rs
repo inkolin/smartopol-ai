@@ -60,7 +60,10 @@ impl MemoryManager {
         match existing {
             Some((id, old_conf)) if confidence < old_conf => {
                 debug!(
-                    user_id, key, old_conf, new_conf = confidence,
+                    user_id,
+                    key,
+                    old_conf,
+                    new_conf = confidence,
                     "skipping learn: existing confidence is higher"
                 );
                 return Ok(());
@@ -128,7 +131,10 @@ impl MemoryManager {
                  VALUES('delete', ?1, ?2, ?3)",
                 rusqlite::params![id, key, value],
             )?;
-            db.execute("DELETE FROM user_memory WHERE id = ?1", rusqlite::params![id])?;
+            db.execute(
+                "DELETE FROM user_memory WHERE id = ?1",
+                rusqlite::params![id],
+            )?;
             self.invalidate_cache(user_id);
             Ok(())
         } else {
