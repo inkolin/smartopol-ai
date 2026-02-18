@@ -8,19 +8,36 @@ use crate::stream::StreamEvent;
 use crate::thinking::ThinkingLevel;
 
 const API_VERSION: &str = "2023-06-01";
+const OAUTH_BETA: &str = "oauth-2025-04-20";
+const OAUTH_TOKEN_PREFIX: &str = "sk-ant-oat01-";
 
 pub struct AnthropicProvider {
     client: reqwest::Client,
     api_key: String,
     base_url: String,
+    is_oauth: bool,
 }
 
 impl AnthropicProvider {
     pub fn new(api_key: String, base_url: Option<String>) -> Self {
+        let is_oauth = api_key.starts_with(OAUTH_TOKEN_PREFIX);
         Self {
             client: reqwest::Client::new(),
+            is_oauth,
             api_key,
             base_url: base_url.unwrap_or_else(|| "https://api.anthropic.com".to_string()),
+        }
+    }
+
+    /// Apply auth headers — OAuth tokens use Bearer + beta header,
+    /// regular API keys use x-api-key.
+    fn apply_auth(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        if self.is_oauth {
+            builder
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("anthropic-beta", OAUTH_BETA)
+        } else {
+            builder.header("x-api-key", &self.api_key)
         }
     }
 }
@@ -37,15 +54,14 @@ impl LlmProvider for AnthropicProvider {
 
         debug!(model = %req.model, "sending request to Anthropic");
 
-        let resp = self
+        let builder = self
             .client
             .post(&url)
-            .header("x-api-key", &self.api_key)
             .header("anthropic-version", API_VERSION)
             .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await?;
+            .json(&body);
+
+        let resp = self.apply_auth(builder).send().await?;
 
         let status = resp.status().as_u16();
         if status == 429 {
@@ -89,15 +105,14 @@ impl LlmProvider for AnthropicProvider {
 
         debug!(model = %req.model, "sending streaming request to Anthropic");
 
-        let resp = self
+        let builder = self
             .client
             .post(&url)
-            .header("x-api-key", &self.api_key)
             .header("anthropic-version", API_VERSION)
             .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await?;
+            .json(&body);
+
+        let resp = self.apply_auth(builder).send().await?;
 
         let status = resp.status().as_u16();
         if status == 429 {

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# pre-push hook — Runs quality gate before every push.
+#
+# Enable with: git config core.hooksPath .githooks
+# Skip with:   git push --no-verify (not recommended)
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+GATE="$REPO_ROOT/skynet/scripts/ci/quality_gate.sh"
+
+if [[ ! -x "$GATE" ]]; then
+    echo "WARNING: quality_gate.sh not found or not executable at $GATE"
+    echo "Skipping pre-push checks."
+    exit 0
+fi
+
+echo ""
+echo "Running pre-push quality gate..."
+echo ""
+
+exec "$GATE"

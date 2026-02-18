@@ -78,7 +78,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(crate::http::openai_compat::chat_completions),
         )
         .route(
-            "/webhooks/:source",
+            "/webhooks/{source}",
             post(crate::http::webhooks::webhook_handler),
         )
         .with_state(state)

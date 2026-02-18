@@ -120,7 +120,12 @@ fn build_provider(
         )));
     }
 
-    // fallback: check env vars
+    // fallback: check env vars (OAuth token takes priority over API key)
+    if let Ok(token) = std::env::var("ANTHROPIC_OAUTH_TOKEN") {
+        info!("LLM provider: Anthropic (from ANTHROPIC_OAUTH_TOKEN env — OAuth)");
+        return Box::new(skynet_agent::anthropic::AnthropicProvider::new(token, None));
+    }
+
     if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
         info!("LLM provider: Anthropic (from ANTHROPIC_API_KEY env)");
         return Box::new(skynet_agent::anthropic::AnthropicProvider::new(key, None));
