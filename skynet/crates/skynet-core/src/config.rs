@@ -16,14 +16,19 @@ pub struct SkynetConfig {
     pub gateway: GatewayConfig,
     pub agent: AgentConfig,
     #[serde(default)]
+    pub database: DatabaseConfig,
+    #[serde(default)]
     pub providers: ProvidersConfig,
     #[serde(default)]
     pub channels: ChannelsConfig,
+    #[serde(default)]
+    pub webhooks: WebhooksConfig,
 }
 
 impl Default for SkynetConfig {
     fn default() -> Self {
         Self {
+            database: DatabaseConfig::default(),
             gateway: GatewayConfig {
                 port: DEFAULT_PORT,
                 bind: DEFAULT_BIND.to_string(),
@@ -39,6 +44,7 @@ impl Default for SkynetConfig {
             },
             providers: ProvidersConfig::default(),
             channels: ChannelsConfig::default(),
+            webhooks: WebhooksConfig::default(),
         }
     }
 }
@@ -77,9 +83,36 @@ pub struct AgentConfig {
     pub soul_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseConfig {
+    #[serde(default = "default_db_path")]
+    pub path: String,
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self { path: default_db_path() }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProvidersConfig {
     pub anthropic: Option<AnthropicConfig>,
+    pub openai: Option<OpenAiProviderConfig>,
+    pub ollama: Option<OllamaConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAiProviderConfig {
+    pub api_key: String,
+    #[serde(default = "default_openai_base_url")]
+    pub base_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OllamaConfig {
+    #[serde(default = "default_ollama_base_url")]
+    pub base_url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,10 +138,50 @@ pub struct DiscordConfig {
     pub bot_token: String,
 }
 
+/// Authentication mode for an incoming webhook source.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum WebhookAuthMode {
+    /// HMAC-SHA256 over the raw request body (GitHub-style X-Hub-Signature-256).
+    HmacSha256,
+    /// Static bearer token in the Authorization header.
+    BearerToken,
+    /// No authentication — use only for internal/trusted networks.
+    None,
+}
+
+/// Configuration for a single webhook source.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookSourceConfig {
+    /// Identifier used in the route, e.g. "github" → POST /webhooks/github.
+    pub name: String,
+    /// HMAC signing secret or bearer token value.
+    pub secret: Option<String>,
+    /// How the incoming request should be authenticated.
+    pub auth_mode: WebhookAuthMode,
+}
+
+/// Top-level webhooks subsystem configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WebhooksConfig {
+    /// When false the /webhooks/:source route returns 404.
+    #[serde(default)]
+    pub enabled: bool,
+    /// List of allowed webhook sources and their auth settings.
+    #[serde(default)]
+    pub sources: Vec<WebhookSourceConfig>,
+}
+
 fn default_port() -> u16 { DEFAULT_PORT }
 fn default_bind() -> String { DEFAULT_BIND.to_string() }
 fn default_model() -> String { "claude-sonnet-4-6".to_string() }
 fn default_anthropic_base_url() -> String { "https://api.anthropic.com".to_string() }
+fn default_openai_base_url() -> String { "https://api.openai.com".to_string() }
+fn default_ollama_base_url() -> String { "http://localhost:11434".to_string() }
+fn default_db_path() -> String {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    format!("{}/.skynet/skynet.db", home)
+}
 
 impl SkynetConfig {
     /// Load config from a TOML file with SKYNET_* env var overrides.

@@ -13,3 +13,19 @@ model = "claude-sonnet-4-6"
 # Anthropic config — set via env or uncomment below:
 # [providers.anthropic]
 # api_key = "sk-ant-..."
+
+# Webhook ingress — disabled by default.
+# Uncomment and configure sources to enable POST /webhooks/:source.
+#
+# [webhooks]
+# enabled = true
+#
+# [[webhooks.sources]]
+# name = "github"
+# auth_mode = "hmac-sha256"
+# secret = "change-me"
+#
+# [[webhooks.sources]]
+# name = "custom"
+# auth_mode = "bearer-token"
+# secret = "change-me"

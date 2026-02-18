@@ -11,12 +11,14 @@ use crate::app::AppState;
 use crate::ws::connection::ConnState;
 use crate::ws::{dispatch, handshake, send};
 
+type WsSink = futures_util::stream::SplitSink<WebSocket, Message>;
+
 /// Process one inbound WS text frame. Returns the new connection state.
 pub async fn handle(
     conn_id: &str,
     text: &str,
     state: ConnState,
-    tx: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    tx: &mut WsSink,
     app: &Arc<AppState>,
 ) -> ConnState {
     let frame: InboundFrame = match serde_json::from_str(text) {
@@ -38,7 +40,7 @@ pub async fn handle(
 async fn handle_auth(
     conn_id: &str,
     frame: InboundFrame,
-    tx: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    tx: &mut WsSink,
     app: &Arc<AppState>,
 ) -> ConnState {
     let Some(req) = frame.as_req() else {
@@ -78,13 +80,14 @@ async fn handle_auth(
 }
 
 /// Post-auth: dispatch method calls to handlers.
+/// Passes WS sink for methods that need to send intermediate events (streaming).
 async fn handle_method(
     frame: InboundFrame,
-    tx: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    tx: &mut WsSink,
     app: &Arc<AppState>,
 ) -> ConnState {
     if let Some(req) = frame.as_req() {
-        let res = dispatch::route(&req.method, req.params.as_ref(), &req.id, app);
+        let res = dispatch::route(&req.method, req.params.as_ref(), &req.id, app, tx).await;
         let _ = send::json(tx, &res).await;
     }
     ConnState::Authenticated

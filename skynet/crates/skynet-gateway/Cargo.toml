@@ -11,6 +11,13 @@ path = "src/main.rs"
 [dependencies]
 skynet-core = { path = "../skynet-core" }
 skynet-protocol = { path = "../skynet-protocol" }
+skynet-agent = { path = "../skynet-agent" }
+skynet-users = { path = "../skynet-users" }
+skynet-memory = { path = "../skynet-memory" }
+skynet-sessions = { path = "../skynet-sessions" }
+skynet-scheduler = { path = "../skynet-scheduler" }
+skynet-terminal = { path = "../skynet-terminal" }
+rusqlite = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }
@@ -26,3 +33,8 @@ futures-util = { workspace = true }
 tokio-util = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
+async-stream = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }

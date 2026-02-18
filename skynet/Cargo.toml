@@ -4,10 +4,18 @@ members = [
     "crates/skynet-core",
     "crates/skynet-protocol",
     "crates/skynet-gateway",
+    "crates/skynet-agent",
+    "crates/skynet-users",
+    "crates/skynet-hooks",
+    "crates/skynet-memory",
+    "crates/skynet-channels",
+    "crates/skynet-sessions",
+    "crates/skynet-scheduler",
+    "crates/skynet-terminal",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["SmartopolAI Contributors"]
 license = "MIT"
@@ -33,3 +41,9 @@ chrono = { version = "0.4", features = ["serde"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 futures-util = "0.3"
 anyhow = "1"
+async-trait = "0.1"
+tokio-stream = "0.1"
+async-stream = "0.3"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"

@@ -1,0 +1,21 @@
+[package]
+name = "skynet-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+hooks = ["dep:skynet-hooks"]
+
+[dependencies]
+skynet-core = { path = "../skynet-core" }
+skynet-hooks = { path = "../skynet-hooks", optional = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+futures-util = { workspace = true }
+async-trait = { workspace = true }
+tokio-stream = { workspace = true }
