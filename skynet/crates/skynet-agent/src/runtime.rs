@@ -21,7 +21,7 @@ use skynet_hooks::{
 pub struct AgentRuntime {
     provider: Box<dyn LlmProvider>,
     prompt: RwLock<PromptBuilder>,
-    default_model: String,
+    default_model: RwLock<String>,
     /// Optional hook engine for LLM observability events.
     #[cfg(feature = "hooks")]
     hooks: Option<Arc<HookEngine>>,
@@ -36,10 +36,21 @@ impl AgentRuntime {
         Self {
             provider,
             prompt: RwLock::new(prompt),
-            default_model,
+            default_model: RwLock::new(default_model),
             #[cfg(feature = "hooks")]
             hooks: None,
         }
+    }
+
+    /// Get the current default model name.
+    pub async fn get_model(&self) -> String {
+        self.default_model.read().await.clone()
+    }
+
+    /// Change the default model at runtime. Returns the previous model.
+    pub async fn set_model(&self, model: String) -> String {
+        let mut guard = self.default_model.write().await;
+        std::mem::replace(&mut *guard, model)
     }
 
     /// Attach a hook engine for LLM observability events.
@@ -61,20 +72,21 @@ impl AgentRuntime {
 
     /// Process a user message and return the AI response (non-streaming).
     pub async fn chat(&self, user_message: &str) -> Result<ChatResponse, ProviderError> {
-        let req = self.build_request(user_message, None, None).await;
+        let req = self.build_request(user_message, None, None, None).await;
         info!(model = %req.model, provider = %self.provider.name(), "processing chat request");
         self.provider.send(&req).await
     }
 
-    /// Chat with user context and session info for prompt caching.
+    /// Chat with user context, session info, and optional model override.
     pub async fn chat_with_context(
         &self,
         user_message: &str,
         user_context: Option<&str>,
         session_info: Option<&SessionInfo>,
+        model_override: Option<&str>,
     ) -> Result<ChatResponse, ProviderError> {
         let req = self
-            .build_request(user_message, user_context, session_info)
+            .build_request(user_message, user_context, session_info, model_override)
             .await;
         info!(
             model = %req.model, provider = %self.provider.name(),
@@ -104,22 +116,23 @@ impl AgentRuntime {
         user_message: &str,
         tx: mpsc::Sender<StreamEvent>,
     ) -> Result<(), ProviderError> {
-        let mut req = self.build_request(user_message, None, None).await;
+        let mut req = self.build_request(user_message, None, None, None).await;
         req.stream = true;
         info!(model = %req.model, provider = %self.provider.name(), "processing streaming chat request");
         self.provider.send_stream(&req, tx).await
     }
 
-    /// Stream with user context and session info for prompt caching.
+    /// Stream with user context, session info, and optional model override.
     pub async fn chat_stream_with_context(
         &self,
         user_message: &str,
         user_context: Option<&str>,
         session_info: Option<&SessionInfo>,
+        model_override: Option<&str>,
         tx: mpsc::Sender<StreamEvent>,
     ) -> Result<(), ProviderError> {
         let mut req = self
-            .build_request(user_message, user_context, session_info)
+            .build_request(user_message, user_context, session_info, model_override)
             .await;
         req.stream = true;
         info!(
@@ -154,12 +167,17 @@ impl AgentRuntime {
         user_message: &str,
         user_context: Option<&str>,
         session_info: Option<&SessionInfo>,
+        model_override: Option<&str>,
     ) -> ChatRequest {
         let prompt_builder = self.prompt.read().await;
         let system_prompt = prompt_builder.build_prompt(user_context, session_info);
         let plain = system_prompt.to_plain_text();
+        let model = match model_override {
+            Some(m) => m.to_string(),
+            None => self.default_model.read().await.clone(),
+        };
         ChatRequest {
-            model: self.default_model.clone(),
+            model,
             system: plain,
             system_prompt: Some(system_prompt),
             messages: vec![Message {

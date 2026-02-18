@@ -32,7 +32,7 @@ Authorization: Bearer <token>
 **Request body (non-streaming):**
 ```json
 {
-  "model": "claude-sonnet-4-5",
+  "model": "claude-sonnet-4-6",
   "messages": [
     { "role": "user", "content": "Hello" }
   ],
@@ -43,7 +43,7 @@ Authorization: Bearer <token>
 **Request body (streaming):**
 ```json
 {
-  "model": "claude-sonnet-4-5",
+  "model": "claude-sonnet-4-6",
   "messages": [
     { "role": "user", "content": "Hello" }
   ],
@@ -56,7 +56,7 @@ Authorization: Bearer <token>
 {
   "id": "chatcmpl-...",
   "object": "chat.completion",
-  "model": "claude-sonnet-4-5",
+  "model": "claude-sonnet-4-6",
   "choices": [
     {
       "index": 0,
@@ -146,6 +146,7 @@ Send a message to the agent. The server streams response tokens as `chat.delta` 
 ```json
 {
   "message": "What is the weather today?",
+  "model": "claude-opus-4-6",
   "channel": "webchat",
   "sender_id": "user-uuid",
   "thinking_level": "medium"
@@ -155,6 +156,7 @@ Send a message to the agent. The server streams response tokens as `chat.delta` 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `message` | string | yes | User message text |
+| `model` | string | no | Per-request model override (e.g. `claude-opus-4-6`). Uses the runtime default if omitted. |
 | `channel` | string | no | Originating channel identifier (e.g. `telegram`, `webchat`) |
 | `sender_id` | string | no | External user identifier on that channel |
 | `thinking_level` | string | no | `low`, `medium`, or `high` (extended thinking budget) |
@@ -193,6 +195,32 @@ Returns the current status of the agent runtime including provider availability.
     { "name": "ollama",   "healthy": false, "priority": 3 }
   ]
 }
+```
+
+---
+
+### agent.model
+
+Get or set the runtime default LLM model. Changing the model takes effect immediately for all subsequent requests that don't specify a per-request `model` override.
+
+**Get current model (no params or empty):**
+```json
+{}
+```
+
+**Response:**
+```json
+{ "model": "claude-sonnet-4-6" }
+```
+
+**Set a new default model:**
+```json
+{ "set": "claude-opus-4-6" }
+```
+
+**Response:**
+```json
+{ "model": "claude-opus-4-6", "previous": "claude-sonnet-4-6" }
 ```
 
 ---

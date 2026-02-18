@@ -32,16 +32,21 @@ pub async fn route(
         // ------------------------------------------------------------------
         "chat.send" => handle_chat_send(params, req_id, app, tx).await,
 
-        "agent.status" => ResFrame::ok(
-            req_id,
-            serde_json::json!({
-                "agents": [{
-                    "id": "main",
-                    "model": app.config.agent.model,
-                    "status": "idle"
-                }]
-            }),
-        ),
+        "agent.status" => {
+            let current_model = app.agent.get_model().await;
+            ResFrame::ok(
+                req_id,
+                serde_json::json!({
+                    "agents": [{
+                        "id": "main",
+                        "model": current_model,
+                        "status": "idle"
+                    }]
+                }),
+            )
+        }
+
+        "agent.model" => handle_agent_model(params, req_id, app).await,
 
         // ------------------------------------------------------------------
         // Sessions
@@ -108,7 +113,7 @@ pub async fn route(
 
 /// Handle `chat.send` — stream LLM response back as EVENT frames.
 ///
-/// Params: `{ "message": string, "stream"?: bool, "channel"?: string, "sender_id"?: string }`
+/// Params: `{ "message": string, "stream"?: bool, "model"?: string, "channel"?: string, "sender_id"?: string }`
 async fn handle_chat_send(
     params: Option<&serde_json::Value>,
     req_id: &str,
@@ -129,6 +134,12 @@ async fn handle_chat_send(
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
+    // Optional per-request model override (e.g. "claude-opus-4-6").
+    let model_override = params
+        .and_then(|p| p.get("model"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty());
+
     // Resolve user memory context (None = anonymous / no context).
     let channel = params
         .and_then(|p| p.get("channel"))
@@ -142,14 +153,30 @@ async fn handle_chat_send(
         method = "chat.send",
         msg_len = message.len(),
         stream = wants_stream,
+        model_override = model_override,
         has_context = user_context.is_some(),
         "processing"
     );
 
     if wants_stream {
-        handle_streaming(message, req_id, app, tx, user_context.as_deref()).await
+        handle_streaming(
+            message,
+            req_id,
+            app,
+            tx,
+            user_context.as_deref(),
+            model_override,
+        )
+        .await
     } else {
-        handle_non_streaming(message, req_id, app, user_context.as_deref()).await
+        handle_non_streaming(
+            message,
+            req_id,
+            app,
+            user_context.as_deref(),
+            model_override,
+        )
+        .await
     }
 }
 
@@ -187,6 +214,7 @@ async fn handle_streaming(
     app: &AppState,
     tx: &mut WsSink,
     user_context: Option<&str>,
+    model_override: Option<&str>,
 ) -> ResFrame {
     use skynet_agent::stream::StreamEvent;
 
@@ -197,9 +225,9 @@ async fn handle_streaming(
     let mut final_tokens_out: u32 = 0;
     let mut final_stop = String::new();
 
-    let send_fut = app
-        .agent
-        .chat_stream_with_context(message, user_context, None, stream_tx);
+    let send_fut =
+        app.agent
+            .chat_stream_with_context(message, user_context, None, model_override, stream_tx);
     tokio::pin!(send_fut);
 
     loop {
@@ -291,6 +319,7 @@ async fn handle_non_streaming(
     req_id: &str,
     app: &Arc<AppState>,
     user_context: Option<&str>,
+    model_override: Option<&str>,
 ) -> ResFrame {
     use skynet_agent::provider::{ChatRequest, Message, Role};
     use skynet_agent::tools::tool_loop;
@@ -304,8 +333,13 @@ async fn handle_non_streaming(
     let system_prompt = prompt_builder.build_prompt(user_context, None);
     let plain = system_prompt.to_plain_text();
 
+    let model = match model_override {
+        Some(m) => m.to_string(),
+        None => app.agent.get_model().await,
+    };
+
     let request = ChatRequest {
-        model: app.config.agent.model.clone(),
+        model,
         system: plain,
         system_prompt: Some(system_prompt),
         messages: vec![Message {
@@ -344,5 +378,40 @@ async fn handle_non_streaming(
             warn!(error = %e, "chat.send (tool loop) failed");
             ResFrame::err(req_id, "LLM_ERROR", &e.to_string())
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// agent.model — get/set the runtime default LLM model
+// ---------------------------------------------------------------------------
+
+/// Handle `agent.model` — read or change the default LLM model at runtime.
+///
+/// Get:  `{ }` or no params → returns `{ "model": "claude-sonnet-4-6" }`
+/// Set:  `{ "set": "claude-opus-4-6" }` → returns `{ "model": "claude-opus-4-6", "previous": "claude-sonnet-4-6" }`
+async fn handle_agent_model(
+    params: Option<&serde_json::Value>,
+    req_id: &str,
+    app: &Arc<AppState>,
+) -> ResFrame {
+    // If "set" is provided, change the model.
+    if let Some(new_model) = params
+        .and_then(|p| p.get("set"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        let previous = app.agent.set_model(new_model.to_string()).await;
+        info!(previous = %previous, new = %new_model, "default model changed");
+        ResFrame::ok(
+            req_id,
+            serde_json::json!({
+                "model": new_model,
+                "previous": previous,
+            }),
+        )
+    } else {
+        // Read-only: return current model.
+        let model = app.agent.get_model().await;
+        ResFrame::ok(req_id, serde_json::json!({ "model": model }))
     }
 }

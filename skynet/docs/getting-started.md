@@ -63,8 +63,15 @@ Set secrets via environment variables (never hard-code them):
 
 ```bash
 export SKYNET_GATEWAY_AUTH_TOKEN="your-secret-token"
-export SKYNET_PROVIDERS_ANTHROPIC_API_KEY="..."
+
+# Regular Anthropic API key:
+export ANTHROPIC_API_KEY="sk-ant-api03-..."
+
+# Or Claude.ai subscription OAuth token (auto-detected by prefix):
+export ANTHROPIC_OAUTH_TOKEN="sk-ant-oat01-..."
 ```
+
+**OAuth vs API key:** Skynet auto-detects token type. OAuth tokens (starting with `sk-ant-oat01-`) use `Authorization: Bearer` + the `anthropic-beta: oauth-2025-04-20` header. Regular API keys use the standard `x-api-key` header. Both work in `skynet.toml` under `providers.anthropic.api_key`.
 
 ## Run
 
