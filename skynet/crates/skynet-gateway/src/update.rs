@@ -25,12 +25,18 @@ pub async fn check_latest_release() -> Result<ReleaseInfo> {
         .timeout(std::time::Duration::from_secs(15))
         .build()?;
 
-    let resp: serde_json::Value = client
+    let http_resp = client
         .get(GITHUB_API)
         .header("Accept", "application/vnd.github+json")
         .send()
         .await
-        .context("failed to reach GitHub API")?
+        .context("failed to reach GitHub API")?;
+
+    if http_resp.status() == reqwest::StatusCode::NOT_FOUND {
+        bail!("no releases published yet on GitHub");
+    }
+
+    let resp: serde_json::Value = http_resp
         .error_for_status()
         .context("GitHub API returned error status")?
         .json()
@@ -140,7 +146,17 @@ fn platform_asset_suffix() -> &'static str {
 pub async fn check_and_print() -> Result<bool> {
     println!("Checking for updates...");
 
-    let release = check_latest_release().await?;
+    let release = match check_latest_release().await {
+        Ok(r) => r,
+        Err(e) if e.to_string().contains("no releases published") => {
+            println!(
+                "  No releases published yet. You are on v{} (built from source).",
+                VERSION
+            );
+            return Ok(false);
+        }
+        Err(e) => return Err(e),
+    };
     let current = VERSION;
     let latest = &release.version;
 
