@@ -15,6 +15,15 @@ target/
 # Reference code (not our code)
 openclaw/
 
+# Local notes — private, never committed
+ideje/
+istrazivanje/
+pitanja/
+reference/
+taskovi/
+SUMMARY.md
+TASKLIST.md
+
 # IDE
 .vscode/
 .idea/
