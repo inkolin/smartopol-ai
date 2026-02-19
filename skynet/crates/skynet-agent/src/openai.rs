@@ -10,14 +10,38 @@ pub struct OpenAiProvider {
     client: reqwest::Client,
     api_key: String,
     base_url: String,
+    provider_name: String,
+    /// Path appended to base_url for chat completions.
+    /// Default: "/v1/chat/completions"
+    chat_path: String,
 }
 
 impl OpenAiProvider {
+    /// Create a standard OpenAI provider.
     pub fn new(api_key: String, base_url: Option<String>) -> Self {
+        Self::with_path(
+            "openai",
+            api_key,
+            base_url.unwrap_or_else(|| "https://api.openai.com".to_string()),
+            "/v1/chat/completions".to_string(),
+        )
+    }
+
+    /// Create a named OpenAI-compatible provider with a custom endpoint path.
+    /// `base_url` should NOT include a trailing slash.
+    /// `chat_path` should start with "/" (e.g. "/v1/chat/completions").
+    pub fn with_path(
+        name: impl Into<String>,
+        api_key: String,
+        base_url: String,
+        chat_path: String,
+    ) -> Self {
         Self {
             client: reqwest::Client::new(),
+            provider_name: name.into(),
             api_key,
-            base_url: base_url.unwrap_or_else(|| "https://api.openai.com".to_string()),
+            base_url,
+            chat_path,
         }
     }
 }
@@ -25,12 +49,12 @@ impl OpenAiProvider {
 #[async_trait]
 impl LlmProvider for OpenAiProvider {
     fn name(&self) -> &str {
-        "openai"
+        &self.provider_name
     }
 
     async fn send(&self, req: &ChatRequest) -> Result<ChatResponse, ProviderError> {
         let body = build_request_body(req, false);
-        let url = format!("{}/v1/chat/completions", self.base_url);
+        let url = format!("{}{}", self.base_url, self.chat_path);
 
         debug!(model = %req.model, "sending request to OpenAI");
 
@@ -80,7 +104,7 @@ impl LlmProvider for OpenAiProvider {
         tx: mpsc::Sender<StreamEvent>,
     ) -> Result<(), ProviderError> {
         let body = build_request_body(req, true);
-        let url = format!("{}/v1/chat/completions", self.base_url);
+        let url = format!("{}{}", self.base_url, self.chat_path);
 
         debug!(model = %req.model, "sending streaming request to OpenAI");
 
@@ -121,7 +145,7 @@ impl LlmProvider for OpenAiProvider {
     }
 }
 
-fn build_request_body(req: &ChatRequest, stream: bool) -> serde_json::Value {
+pub(crate) fn build_request_body(req: &ChatRequest, stream: bool) -> serde_json::Value {
     // OpenAI uses a flat messages array; system is prepended as a system message.
     let mut messages = vec![serde_json::json!({
         "role": "system",
@@ -143,7 +167,7 @@ fn build_request_body(req: &ChatRequest, stream: bool) -> serde_json::Value {
     })
 }
 
-fn parse_response(resp: ApiResponse) -> ChatResponse {
+pub(crate) fn parse_response(resp: ApiResponse) -> ChatResponse {
     let choice = resp.choices.into_iter().next();
     let content = choice
         .as_ref()
@@ -169,7 +193,7 @@ fn parse_response(resp: ApiResponse) -> ChatResponse {
 /// Parse OpenAI streaming SSE response and emit StreamEvents.
 /// OpenAI SSE format is identical to standard SSE (event/data lines).
 /// Each data line contains a JSON delta object; `data: [DONE]` signals end.
-async fn process_openai_stream(
+pub(crate) async fn process_openai_stream(
     resp: reqwest::Response,
     model: String,
     tx: mpsc::Sender<StreamEvent>,
@@ -265,30 +289,30 @@ async fn process_openai_stream(
         .await;
 }
 
-// OpenAI API response types (private — deserialization only)
+// OpenAI API response types — pub(crate) so copilot/qwen providers can reuse
 
 #[derive(Deserialize)]
-struct ApiResponse {
-    model: String,
-    choices: Vec<Choice>,
-    usage: Option<Usage>,
+pub(crate) struct ApiResponse {
+    pub(crate) model: String,
+    pub(crate) choices: Vec<Choice>,
+    pub(crate) usage: Option<Usage>,
 }
 
 #[derive(Deserialize)]
-struct Choice {
-    message: ChatMessage,
-    finish_reason: Option<String>,
+pub(crate) struct Choice {
+    pub(crate) message: ChatMessage,
+    pub(crate) finish_reason: Option<String>,
 }
 
 #[derive(Deserialize)]
-struct ChatMessage {
-    content: Option<String>,
+pub(crate) struct ChatMessage {
+    pub(crate) content: Option<String>,
 }
 
 #[derive(Deserialize)]
-struct Usage {
-    prompt_tokens: u32,
-    completion_tokens: u32,
+pub(crate) struct Usage {
+    pub(crate) prompt_tokens: u32,
+    pub(crate) completion_tokens: u32,
 }
 
 // OpenAI streaming chunk types

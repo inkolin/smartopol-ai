@@ -180,53 +180,233 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Build the LLM provider from config with priority failover.
-/// Anthropic > OpenAI > Ollama > env vars > NullProvider.
+/// Build the LLM provider chain from config.
+///
+/// Priority order:
+///   1. providers.anthropic
+///   2. providers.openai
+///   3. providers.openai_compat[*]  (in declaration order)
+///   4. providers.ollama
+///   5. Env vars (ANTHROPIC_OAUTH_TOKEN, ANTHROPIC_API_KEY, OPENAI_API_KEY)
+///
+/// When multiple providers are configured a ProviderRouter is built so
+/// requests automatically fail over to the next slot on error.
 fn build_provider(
     config: &skynet_core::config::SkynetConfig,
 ) -> Box<dyn skynet_agent::provider::LlmProvider> {
-    // check configured providers
+    use skynet_agent::router::{ProviderRouter, ProviderSlot};
+
+    let mut slots: Vec<ProviderSlot> = Vec::new();
+
+    // ── Anthropic (primary) ──────────────────────────────────────────────────
     if let Some(ref anthropic) = config.providers.anthropic {
-        info!("LLM provider: Anthropic ({})", anthropic.base_url);
-        return Box::new(skynet_agent::anthropic::AnthropicProvider::new(
-            anthropic.api_key.clone(),
-            Some(anthropic.base_url.clone()),
+        let is_oauth = anthropic.api_key.starts_with("sk-ant-oat01-");
+        let kind = if is_oauth {
+            "OAuth/subscription"
+        } else {
+            "API key"
+        };
+        info!(
+            "LLM provider slot[{}]: Anthropic {} ({})",
+            slots.len(),
+            kind,
+            anthropic.base_url
+        );
+        slots.push(ProviderSlot::new(
+            Box::new(skynet_agent::anthropic::AnthropicProvider::new(
+                anthropic.api_key.clone(),
+                Some(anthropic.base_url.clone()),
+            )),
+            1,
         ));
     }
 
+    // ── OpenAI (primary) ─────────────────────────────────────────────────────
     if let Some(ref openai) = config.providers.openai {
-        info!("LLM provider: OpenAI ({})", openai.base_url);
-        return Box::new(skynet_agent::openai::OpenAiProvider::new(
-            openai.api_key.clone(),
-            Some(openai.base_url.clone()),
+        info!(
+            "LLM provider slot[{}]: OpenAI ({})",
+            slots.len(),
+            openai.base_url
+        );
+        slots.push(ProviderSlot::new(
+            Box::new(skynet_agent::openai::OpenAiProvider::new(
+                openai.api_key.clone(),
+                Some(openai.base_url.clone()),
+            )),
+            1,
         ));
     }
 
+    // ── OpenAI-compatible entries from registry ──────────────────────────────
+    for entry in &config.providers.openai_compat {
+        let base_url =
+            match entry.base_url.clone().or_else(|| {
+                skynet_agent::registry::lookup(&entry.id).map(|p| p.base_url.to_string())
+            }) {
+                Some(u) => u,
+                None => {
+                    tracing::warn!(
+                        id = %entry.id,
+                        "unknown provider with no base_url — skipping"
+                    );
+                    continue;
+                }
+            };
+
+        let chat_path = entry.chat_path.clone().unwrap_or_else(|| {
+            skynet_agent::registry::lookup(&entry.id)
+                .map(|p| p.chat_path.to_string())
+                .unwrap_or_else(|| "/v1/chat/completions".to_string())
+        });
+
+        info!(
+            "LLM provider slot[{}]: {} ({}{})",
+            slots.len(),
+            entry.id,
+            base_url,
+            chat_path
+        );
+
+        slots.push(ProviderSlot::new(
+            Box::new(skynet_agent::openai::OpenAiProvider::with_path(
+                entry.id.clone(),
+                entry.api_key.clone(),
+                base_url,
+                chat_path,
+            )),
+            1,
+        ));
+    }
+
+    // ── GitHub Copilot ────────────────────────────────────────────────────────
+    if let Some(ref copilot) = config.providers.copilot {
+        match skynet_agent::copilot::CopilotProvider::from_file(&copilot.token_path) {
+            Ok(provider) => {
+                info!(
+                    "LLM provider slot[{}]: GitHub Copilot (token from {})",
+                    slots.len(),
+                    copilot.token_path
+                );
+                slots.push(ProviderSlot::new(Box::new(provider), 1));
+            }
+            Err(e) => {
+                tracing::warn!("Copilot provider skipped: {e}");
+            }
+        }
+    }
+
+    // ── Qwen OAuth ───────────────────────────────────────────────────────────
+    if let Some(ref qwen) = config.providers.qwen_oauth {
+        match skynet_agent::qwen_oauth::QwenOAuthProvider::from_file(&qwen.credentials_path) {
+            Ok(provider) => {
+                info!(
+                    "LLM provider slot[{}]: Qwen OAuth (credentials from {})",
+                    slots.len(),
+                    qwen.credentials_path
+                );
+                slots.push(ProviderSlot::new(Box::new(provider), 1));
+            }
+            Err(e) => {
+                tracing::warn!("Qwen OAuth provider skipped: {e}");
+            }
+        }
+    }
+
+    // ── AWS Bedrock ────────────────────────────────────────────────────────────
+    if let Some(ref bedrock) = config.providers.bedrock {
+        match skynet_agent::bedrock::BedrockProvider::from_env(
+            bedrock.region.clone(),
+            bedrock.profile.as_deref(),
+        ) {
+            Ok(provider) => {
+                info!(
+                    "LLM provider slot[{}]: AWS Bedrock (region: {})",
+                    slots.len(),
+                    bedrock.region
+                );
+                slots.push(ProviderSlot::new(Box::new(provider), 1));
+            }
+            Err(e) => {
+                tracing::warn!("Bedrock provider skipped: {e}");
+            }
+        }
+    }
+
+    // ── Google Vertex AI ─────────────────────────────────────────────────────
+    if let Some(ref vertex) = config.providers.vertex {
+        match skynet_agent::vertex::VertexProvider::from_file(
+            &vertex.key_file,
+            vertex.project_id.clone(),
+            vertex.location.clone(),
+        ) {
+            Ok(provider) => {
+                info!(
+                    "LLM provider slot[{}]: Google Vertex AI (project: {}, location: {})",
+                    slots.len(),
+                    vertex.project_id.as_deref().unwrap_or("auto"),
+                    vertex.location.as_deref().unwrap_or("us-central1")
+                );
+                slots.push(ProviderSlot::new(Box::new(provider), 1));
+            }
+            Err(e) => {
+                tracing::warn!("Vertex AI provider skipped: {e}");
+            }
+        }
+    }
+
+    // ── Ollama ───────────────────────────────────────────────────────────────
     if let Some(ref ollama) = config.providers.ollama {
-        info!("LLM provider: Ollama ({})", ollama.base_url);
-        return Box::new(skynet_agent::ollama::OllamaProvider::new(Some(
-            ollama.base_url.clone(),
-        )));
+        info!(
+            "LLM provider slot[{}]: Ollama ({})",
+            slots.len(),
+            ollama.base_url
+        );
+        slots.push(ProviderSlot::new(
+            Box::new(skynet_agent::ollama::OllamaProvider::new(Some(
+                ollama.base_url.clone(),
+            ))),
+            0,
+        ));
     }
 
-    // fallback: check env vars (OAuth token takes priority over API key)
-    if let Ok(token) = std::env::var("ANTHROPIC_OAUTH_TOKEN") {
-        info!("LLM provider: Anthropic (from ANTHROPIC_OAUTH_TOKEN env — OAuth)");
-        return Box::new(skynet_agent::anthropic::AnthropicProvider::new(token, None));
+    // ── Env var fallbacks (only when no TOML provider is configured) ─────────
+    if slots.is_empty() {
+        if let Ok(token) = std::env::var("ANTHROPIC_OAUTH_TOKEN") {
+            info!("LLM provider: Anthropic OAuth (from env)");
+            slots.push(ProviderSlot::new(
+                Box::new(skynet_agent::anthropic::AnthropicProvider::new(token, None)),
+                1,
+            ));
+        } else if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+            info!("LLM provider: Anthropic (from env)");
+            slots.push(ProviderSlot::new(
+                Box::new(skynet_agent::anthropic::AnthropicProvider::new(key, None)),
+                1,
+            ));
+        } else if let Ok(key) = std::env::var("OPENAI_API_KEY") {
+            info!("LLM provider: OpenAI (from env)");
+            slots.push(ProviderSlot::new(
+                Box::new(skynet_agent::openai::OpenAiProvider::new(key, None)),
+                1,
+            ));
+        }
     }
 
-    if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
-        info!("LLM provider: Anthropic (from ANTHROPIC_API_KEY env)");
-        return Box::new(skynet_agent::anthropic::AnthropicProvider::new(key, None));
+    // ── Return single provider or router ─────────────────────────────────────
+    match slots.len() {
+        0 => {
+            tracing::warn!("No LLM provider configured — chat.send will return errors");
+            Box::new(NullProvider)
+        }
+        1 => slots.remove(0).provider,
+        _ => {
+            info!(
+                "ProviderRouter: {} slots configured (automatic failover)",
+                slots.len()
+            );
+            Box::new(ProviderRouter::new(slots))
+        }
     }
-
-    if let Ok(key) = std::env::var("OPENAI_API_KEY") {
-        info!("LLM provider: OpenAI (from OPENAI_API_KEY env)");
-        return Box::new(skynet_agent::openai::OpenAiProvider::new(key, None));
-    }
-
-    tracing::warn!("No LLM provider configured — chat.send will return errors");
-    Box::new(NullProvider)
 }
 
 /// Ensure the parent directory for a file path exists.

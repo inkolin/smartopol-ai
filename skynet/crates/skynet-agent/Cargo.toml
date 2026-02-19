@@ -24,4 +24,10 @@ async-trait    = { workspace = true }
 tokio-stream   = { workspace = true }
 uuid           = { workspace = true }
 chrono         = { workspace = true }
+hmac           = { workspace = true }
+sha2           = { workspace = true }
+hex            = { workspace = true }
+ring           = "0.17"
+base64         = "0.22"
+urlencoding    = "2"
 toml           = "0.8"

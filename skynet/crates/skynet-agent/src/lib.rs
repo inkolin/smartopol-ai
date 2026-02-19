@@ -1,12 +1,17 @@
 pub mod anthropic;
 pub mod anthropic_stream;
+pub mod bedrock;
+pub mod copilot;
 pub mod ollama;
 pub mod openai;
 pub mod pipeline;
 pub mod prompt;
 pub mod provider;
+pub mod qwen_oauth;
+pub mod registry;
 pub mod router;
 pub mod runtime;
 pub mod stream;
 pub mod thinking;
 pub mod tools;
+pub mod vertex;
