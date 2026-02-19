@@ -17,7 +17,7 @@ use std::{fmt, str};
 /// use serenity::utils::token::validate;
 ///
 /// // ensure a valid token is in fact a valid format:
-/// assert!(validate("Mjg4NzYwMjQxMzYzODc3ODg4.C_ikow.j3VupLBuE1QWZng3TMGH0z_UAwg").is_ok());
+/// assert!(validate("EXAMPLE_ID_BASE64.TSTAMP.EXAMPLE_SIGNATURE_FAKE").is_ok());
 ///
 /// assert!(validate("Mjg4NzYwMjQxMzYzODc3ODg4").is_err());
 /// assert!(validate("").is_err());
