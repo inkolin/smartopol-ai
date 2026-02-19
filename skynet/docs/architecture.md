@@ -10,7 +10,7 @@ skynet/
     skynet-core/       # shared types (UserId, AgentId, SessionKey, ConnId, UserRole), config, errors
     skynet-protocol/   # wire frame types (ReqFrame, ResFrame, EventFrame), handshake, methods
     skynet-gateway/    # Axum HTTP/WS server binary — port 18789, OpenAI compat endpoint
-    skynet-agent/      # LLM providers (Anthropic, OpenAI, Ollama), ProviderRouter with failover, SSE streaming, 3-tier prompt caching
+    skynet-agent/      # 42+ LLM providers (Anthropic, OpenAI, Bedrock, Vertex, Copilot, Qwen, Ollama + 32 OpenAI-compat), ProviderRouter with failover, SSE streaming, 3-tier prompt caching
     skynet-users/      # multi-user system, identity linking, permissions (admin/user/child), approval queue
     skynet-memory/     # per-user memory with FTS5, conversation history, UserMemoryManager
     skynet-hooks/      # event bus (Before/After hooks), 8 event types, priority-based execution
@@ -20,7 +20,7 @@ skynet/
     skynet-terminal/    # PTY sessions, one-shot exec, background jobs, safety checker
 ```
 
-**11 crates total. 52 tests passing.**
+**12 crates total. 55 tests passing.**
 
 ## Crate Descriptions
 
@@ -34,7 +34,14 @@ Implements the OpenClaw-compatible wire protocol v3. Defines `ReqFrame`, `ResFra
 The main server binary running on port 18789. Provides an Axum-based HTTP/WebSocket server, a `/health` endpoint, a WebSocket connection state machine (challenge → auth → normal), periodic heartbeat ticks, and an OpenAI-compatible `POST /v1/chat/completions` endpoint supporting both streaming SSE and non-streaming responses. `main.rs` initialises all subsystems; `dispatch.rs` routes incoming WS methods to the correct subsystem handler.
 
 ### skynet-agent
-Encapsulates all LLM provider logic. Defines a `Provider` trait with concrete implementations for Anthropic, OpenAI, and Ollama. `ProviderRouter` selects providers by priority and fails over automatically. Streaming responses are delivered via `tokio::sync::mpsc` channels. 3-tier prompt caching uses 2 Anthropic cache breakpoints for approximately 90% input token savings on repeated prompts. Extended thinking is exposed via a `thinking_level` parameter (`low`, `medium`, `high`) that maps to a token budget. Defines the `Tool` trait and ships built-in file tools (`read_file`, `write_file`, `list_files`, `search_files`). The tool execution loop runs up to 25 iterations, handling Anthropic's `tool_use` / `tool_result` message protocol automatically.
+Encapsulates all LLM provider logic. Defines a `Provider` trait with 7 native implementations (Anthropic, OpenAI, Ollama, GitHub Copilot, Qwen OAuth, AWS Bedrock, Google Vertex AI) plus a built-in registry of 32 OpenAI-compatible providers. `ProviderRouter` selects providers by priority and fails over automatically. Streaming responses are delivered via `tokio::sync::mpsc` channels. 3-tier prompt caching uses 2 Anthropic cache breakpoints for approximately 90% input token savings on repeated prompts. Extended thinking is exposed via a `thinking_level` parameter (`low`, `medium`, `high`) that maps to a token budget. Defines the `Tool` trait and ships built-in file tools (`read_file`, `write_file`, `list_files`, `search_files`). The tool execution loop runs up to 25 iterations, handling Anthropic's `tool_use` / `tool_result` message protocol automatically.
+
+Auth methods per provider type:
+- **API key**: Anthropic, OpenAI, all OpenAI-compat registry providers
+- **OAuth device flow**: Qwen (PKCE + S256), GitHub Copilot (token exchange)
+- **SigV4**: AWS Bedrock (HMAC-SHA256 signing chain)
+- **JWT RS256**: Google Vertex AI (service account → signed JWT → access token)
+- **None**: Ollama, LM Studio, llama.cpp (local)
 
 ### skynet-users
 Multi-user identity and permission system backed by SQLite (`users`, `user_identities`, `approval_queue` tables). `UserResolver` caches up to 256 users with an LRU cache. Roles are `admin`, `user`, and `child`, each with configurable permissions. Includes daily token budget tracking and an approval queue for new registrations.

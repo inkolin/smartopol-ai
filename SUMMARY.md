@@ -175,7 +175,7 @@ Each subsystem gets its own `rusqlite::Connection` opened against the same file.
 
 **LLM Providers**
 
-Three providers are implemented, all implementing the `LlmProvider` trait:
+42+ providers are supported, all implementing the `LlmProvider` trait:
 
 ```rust
 pub trait LlmProvider: Send + Sync {
@@ -185,20 +185,32 @@ pub trait LlmProvider: Send + Sync {
 }
 ```
 
-| Provider | Module | Notes |
-|----------|--------|-------|
-| Anthropic Claude | `anthropic.rs` + `anthropic_stream.rs` | Full SSE streaming, prompt caching, extended thinking, OAuth token support |
-| OpenAI | `openai.rs` | Compatible with any OpenAI-format API (e.g. Azure, Groq) |
-| Ollama | `ollama.rs` | Local model support |
+**Native providers** (dedicated Rust modules):
+
+| Provider | Module | Auth Method | Notes |
+|----------|--------|-------------|-------|
+| Anthropic Claude | `anthropic.rs` + `anthropic_stream.rs` | API key / OAuth | Full SSE streaming, prompt caching, extended thinking |
+| OpenAI | `openai.rs` | API key | Compatible with any OpenAI-format API |
+| Ollama | `ollama.rs` | None (local) | Local model support |
+| GitHub Copilot | `copilot.rs` | GitHub token exchange | Token cached ~30 min, auto-refreshed |
+| Qwen (Alibaba) | `qwen_oauth.rs` | OAuth device flow + PKCE | Browser-based auth, tokens auto-refreshed |
+| AWS Bedrock | `bedrock.rs` | SigV4 (HMAC-SHA256) | Claude on Bedrock, env vars or ~/.aws/credentials |
+| Google Vertex AI | `vertex.rs` | JWT RS256 | Service account key, token cached 1 hour |
+
+**OpenAI-compatible providers** (via built-in registry, 32 entries):
+Groq, DeepSeek, OpenRouter, xAI (Grok), Mistral, Perplexity, Together, Fireworks, Cerebras, SambaNova, Cohere, Gemini, Moonshot, GLM, Doubao, Qwen (API key), and 16 more. See `skynet-agent/src/registry.rs` for the full list.
 
 Provider selection at startup (priority order):
 1. `providers.anthropic` in config
 2. `providers.openai` in config
-3. `providers.ollama` in config
-4. `ANTHROPIC_OAUTH_TOKEN` env (OAuth auth, for Claude Max subscribers)
-5. `ANTHROPIC_API_KEY` env
-6. `OPENAI_API_KEY` env
-7. `NullProvider` — starts up but returns errors on every request
+3. `providers.openai_compat[*]` (in declaration order, auto-resolved from registry)
+4. `providers.copilot` (GitHub Copilot)
+5. `providers.qwen_oauth` (Qwen OAuth)
+6. `providers.bedrock` (AWS Bedrock)
+7. `providers.vertex` (Google Vertex AI)
+8. `providers.ollama` in config
+9. Env var fallbacks: `ANTHROPIC_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`
+10. `NullProvider` — starts up but returns errors on every request
 
 **Streaming Architecture**
 

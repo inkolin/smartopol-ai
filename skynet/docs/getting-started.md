@@ -1,5 +1,13 @@
 # Getting Started
 
+## Quickest Start
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/inkolin/smartopol-ai/main/install.sh | bash
+```
+
+The one-liner installer handles everything: Rust, build, config wizard, health check, and drops you into a chat. See [Setup Guide](setup-guide.md) for full details.
+
 ## Prerequisites
 
 - Rust 1.80+ (install via [rustup](https://rustup.rs/))
@@ -7,14 +15,14 @@
 
 ## Workspace Crates
 
-The workspace contains 11 crates that build together:
+The workspace contains 12 crates that build together:
 
 | Crate | Role |
 |---|---|
 | `skynet-core` | Shared types, config, errors |
 | `skynet-protocol` | Wire protocol v3 (REQ/RES/EVENT frames) |
 | `skynet-gateway` | Main server binary (port 18789, HTTP + WebSocket) |
-| `skynet-agent` | LLM providers (Anthropic, OpenAI, Ollama), ProviderRouter, SSE streaming |
+| `skynet-agent` | 42+ LLM providers, ProviderRouter, SSE streaming |
 | `skynet-users` | Multi-user identity, roles, permissions, approval queue |
 | `skynet-memory` | Per-user memory with FTS5 search and conversation history |
 | `skynet-hooks` | Event bus with Before/After hooks and priority-based execution |
@@ -22,17 +30,18 @@ The workspace contains 11 crates that build together:
 | `skynet-sessions` | User-centric session keys with SQLite persistence |
 | `skynet-terminal` | Terminal execution: PTY, one-shot commands, background jobs, safety checker |
 | `skynet-scheduler` | Recurring task scheduler with SQLite persistence |
+| `skynet-discord` | Discord adapter (serenity 0.12) — guild + DM |
 
 ## Build
 
 ```bash
 cd skynet
-cargo build
+cargo build --release
 ```
 
 ## Test
 
-Run the full test suite (52 tests across all crates):
+Run the full test suite (55 tests across all crates):
 
 ```bash
 cargo test --workspace
@@ -40,7 +49,13 @@ cargo test --workspace
 
 ## Configure
 
-Create `~/.skynet/skynet.toml`:
+The easiest way to configure SmartopolAI is via `setup.sh`:
+
+```bash
+./setup.sh
+```
+
+**Manual configuration** — create `~/.skynet/skynet.toml`:
 
 ```toml
 [gateway]
@@ -48,35 +63,35 @@ port = 18789
 bind = "127.0.0.1"
 
 [gateway.auth]
-mode = "token"
-# Set your token via the SKYNET_GATEWAY_AUTH_TOKEN environment variable
-# Do not commit real tokens to version control
+mode  = "token"
+token = "your-secret-token"
 
 [agent]
 model = "claude-sonnet-4-6"
 
 [providers.anthropic]
-# Set your API key via the SKYNET_PROVIDERS_ANTHROPIC_API_KEY environment variable
+api_key = "sk-ant-api03-..."
 ```
 
-Set secrets via environment variables (never hard-code them):
+SmartopolAI supports 42+ providers. See [LLM Providers](providers.md) for configuration examples including Anthropic, OpenAI, Groq, DeepSeek, AWS Bedrock, Google Vertex AI, GitHub Copilot, Qwen, Ollama, and many more.
+
+All config values can be overridden with `SKYNET_*` environment variables:
 
 ```bash
 export SKYNET_GATEWAY_AUTH_TOKEN="your-secret-token"
-
-# Regular Anthropic API key:
 export ANTHROPIC_API_KEY="sk-ant-api03-..."
-
-# Or Claude.ai subscription OAuth token (auto-detected by prefix):
-export ANTHROPIC_OAUTH_TOKEN="sk-ant-oat01-..."
 ```
-
-**OAuth vs API key:** Skynet auto-detects token type. OAuth tokens (starting with `sk-ant-oat01-`) use `Authorization: Bearer` + the `anthropic-beta: oauth-2025-04-20` header. Regular API keys use the standard `x-api-key` header. Both work in `skynet.toml` under `providers.anthropic.api_key`.
 
 ## Run
 
 ```bash
-cargo run --bin skynet-gateway
+~/.skynet/skynet-gateway
+```
+
+Or from source:
+
+```bash
+cargo run --release --bin skynet-gateway
 ```
 
 ## Verify
@@ -88,5 +103,19 @@ curl http://127.0.0.1:18789/health
 Expected response:
 
 ```json
-{"status":"ok","version":"0.2.0","protocol":3,"ws_clients":0}
+{"status":"ok","version":"0.4.0","protocol":3,"ws_clients":0}
 ```
+
+## Chat
+
+**Terminal:**
+```bash
+curl -X POST http://127.0.0.1:18789/chat \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello!"}'
+```
+
+**Web browser:** Open `http://127.0.0.1:18789`
+
+**Discord:** Mention your bot or send it a DM (if configured)

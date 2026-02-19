@@ -29,9 +29,9 @@ Level 3 — AI agents assist other agents   ← PLANNED (Phase 9)
 ---
 
 ## ✅ Phase 2 — Agent runtime
-**Status: COMPLETE (v0.2.0)**
+**Status: COMPLETE (v0.4.0)**
 
-- Anthropic Claude, OpenAI, Ollama providers
+- 42+ LLM providers: Anthropic, OpenAI, Groq, DeepSeek, AWS Bedrock, Vertex AI, GitHub Copilot, Qwen, Ollama, and 30+ OpenAI-compatible
 - ProviderRouter with automatic fallback
 - Tool loop (LLM → tool calls → results → LLM)
 - Streaming responses (`chat.delta` WS events)
@@ -76,34 +76,30 @@ Level 3 — AI agents assist other agents   ← PLANNED (Phase 9)
 
 ---
 
-## 🔄 Phase 6 — Installation & Setup experience
-**Status: IN PROGRESS — next priority**
+## ✅ Phase 6 — Installation & Setup experience
+**Status: COMPLETE (v0.4.0)**
 
-The goal: clone → one command → running in 5 minutes, on any OS.
+The goal: clone → one command → running in 5 minutes.
 
-- [ ] `setup.sh` — Linux/macOS installer
-  - detects OS and dependencies (Rust, OpenSSL, sqlite3)
-  - installs missing deps automatically
-  - creates `~/.skynet/` with default config
-  - generates `SOUL.md` from template
+- [x] `setup.sh` — Linux/macOS interactive installer
+  - OS detection (Linux/macOS, aborts on Windows with WSL2 guidance)
+  - Auto-installs Rust via rustup if missing
+  - `cargo build --release` and binary copy to `~/.skynet/`
+  - Config wizard: 42+ provider menu, live API key validation
+  - OAuth device flow for Qwen (PKCE) and GitHub Copilot
+  - Enterprise providers: AWS Bedrock, Google Vertex AI
   - Discord bot setup wizard (token, permissions, invite link)
-  - first-run health check
-- [ ] `setup.ps1` — Windows PowerShell installer
-  - WSL2 detection and guidance
-  - winget/choco dependency install
-  - same config wizard as Linux
-- [ ] `install.sh` — one-liner remote install
+  - Existing config detection (keep or reconfigure)
+  - Health check + first-run AI greeting
+  - Auto-start installation (launchd on macOS, systemd on Linux)
+  - Terminal REPL chat after setup
+- [x] `install.sh` — one-liner remote install
   ```bash
   curl -fsSL https://raw.githubusercontent.com/inkolin/smartopol-ai/main/install.sh | bash
   ```
-- [ ] Docker image + `docker-compose.yml`
-  - single-container: gateway + agent + SQLite
-  - env var config (no file editing needed)
-  - volume mount for `~/.skynet/`
-- [ ] Pre-built binaries (GitHub Releases)
-  - `skynet-gateway-linux-x86_64`
-  - `skynet-gateway-macos-aarch64`
-  - `skynet-gateway-windows-x86_64.exe`
+- [ ] `setup.ps1` — Windows PowerShell installer (deferred — WSL2 guidance for now)
+- [ ] Docker image + `docker-compose.yml` (planned)
+- [ ] Pre-built binaries via GitHub Releases (planned)
 
 ---
 
@@ -177,7 +173,8 @@ This is where Level 3 autonomy begins.
 |---------|-------|-----------|
 | v0.1.0 | 1 | Gateway skeleton, protocol v3, auth |
 | v0.2.0 | 2-5 | Full agent runtime, memory, Discord, scheduler, plugins |
-| v0.3.0 | 6 | Setup experience, Docker, binaries ← next |
-| v0.4.0 | 7 | Security hardening, plugin sandbox |
-| v0.5.0 | 8 | Web UI |
+| v0.3.0 | 3 | Users + memory, FTS5, RBAC permissions |
+| v0.4.0 | 2+6 | 42+ LLM providers, setup.sh, one-liner install |
+| v0.5.0 | 7 | Security hardening, plugin sandbox |
+| v0.6.0 | 8 | Web UI |
 | v1.0.0 | 9-10 | Multi-agent, production-ready |

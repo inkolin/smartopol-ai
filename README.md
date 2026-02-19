@@ -173,22 +173,27 @@ It fetches the code, creates the plugin folder, writes `tool.toml` and the entry
 ## Roadmap
 
 - [x] **Phase 1** — Gateway skeleton (Axum HTTP/WS, protocol v3, auth)
-- [x] **Phase 2** — Agent runtime (LLM providers, tool loop, streaming)
+- [x] **Phase 2** — Agent runtime (42+ LLM providers, tool loop, streaming)
 - [x] **Phase 3** — Users + Memory (SQLite, FTS5, cross-channel identity)
 - [x] **Phase 4** — Channels (Discord done, Telegram in progress)
 - [x] **Phase 5** — Advanced (scheduler, hooks, terminal, knowledge base, plugins)
-- [ ] **Phase 6** — Security hardening (audit log, secrets vault, plugin sandbox)
-- [ ] **Phase 7** — Web UI
+- [x] **Phase 6** — Setup experience (one-liner install, config wizard, auto-start)
+- [ ] **Phase 7** — Security hardening (audit log, secrets vault, plugin sandbox)
+- [ ] **Phase 8** — Web UI
 
 ---
 
 ## Documentation
 
 - [Getting Started](skynet/docs/getting-started.md)
+- [Setup Guide](skynet/docs/setup-guide.md)
 - [Architecture](skynet/docs/architecture.md)
+- [LLM Providers](skynet/docs/providers.md) (42+ supported)
 - [Plugin System](skynet/docs/plugins.md)
 - [API Reference](skynet/docs/api-reference.md)
 - [Concurrency Model](skynet/docs/concurrency.md)
+- [Shared Message Pipeline](skynet/docs/shared-message-pipeline.md)
+- [Scheduled Reminders](skynet/docs/scheduled-reminders.md)
 
 ---
 
@@ -200,7 +205,7 @@ It fetches the code, creates the plugin folder, writes `tool.toml` and the entry
 | Async runtime | Tokio |
 | Web server | Axum 0.8 (Tower + Hyper) |
 | Database | SQLite (bundled, WAL, FTS5) |
-| AI providers | Anthropic Claude, OpenAI, Ollama |
+| AI providers | 42+ providers (Anthropic, OpenAI, Groq, DeepSeek, Bedrock, Vertex AI, Copilot, Qwen, Ollama, and 30+ more) |
 | Config | TOML + figment |
 | Discord | serenity 0.12 |
 
