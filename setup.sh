@@ -148,7 +148,7 @@ REGISTRY=(
     "moonshot|Moonshot AI (Kimi)|https://api.moonshot.cn|/v1/chat/completions|moonshot-v1-8k|"
     "glm|GLM (Zhipu AI)|https://open.bigmodel.cn/api/paas|/v4/chat/completions|glm-4-flash|free"
     "doubao|Doubao (ByteDance)|https://ark.cn-beijing.volces.com/api|/v3/chat/completions|doubao-pro-4k|"
-    "qwen|Qwen (Alibaba)|https://dashscope.aliyuncs.com/compatible-mode|/v1/chat/completions|qwen-turbo|"
+    "qwen|Qwen (Alibaba)|https://portal.qwen.ai|/v1/chat/completions|qwen3-coder-480b-a35b-instruct|"
     "zai|Z.AI|https://api.z.ai|/v1/chat/completions|z1-preview|"
     "yi|01.AI (Yi)|https://api.01.ai|/v1/chat/completions|yi-large|"
     "minimax|MiniMax|https://api.minimax.chat|/v1/text/chatcompletion_v2|MiniMax-Text-01|"
@@ -589,7 +589,7 @@ api_key = \"${api_key}\""
             echo    "       Free for open-source, included with GitHub Pro"
             echo    "       Browser-based login (no key needed)"
             echo
-            echo -e "    3) ${BOLD}Qwen (Alibaba)${RESET} ${GREEN}(2000 free req/day)${RESET}"
+            echo -e "    3) ${BOLD}Qwen (Alibaba)${RESET} ${GREEN}(2000 free req/day, Qwen3-Coder 480B)${RESET}"
             echo    "       Browser-based login (no key needed)"
             echo
             echo -e "    0) ${YELLOW}Back${RESET}"
@@ -638,7 +638,7 @@ token_path = \"${COPILOT_TOKEN_FILE}\""
                     ;;
                 3)
                     PROVIDER_NAME="qwen-oauth"
-                    AGENT_MODEL="qwen-turbo"
+                    AGENT_MODEL="qwen3-coder-480b-a35b-instruct"
                     if oauth_qwen; then
                         PROVIDER_TOML="[providers.qwen_oauth]
 credentials_path = \"${QWEN_CREDENTIALS_FILE}\""
@@ -1116,6 +1116,10 @@ print_summary() {
 
 # ─── 11. Launch Agent ─────────────────────────────────────────────────────────
 launch_agent() {
+    # Kill any previously running gateway to avoid port conflicts / stale tokens
+    pkill -f "$BINARY_NAME" 2>/dev/null || true
+    sleep 1
+
     info "Starting SmartopolAI in the background..."
     "$SKYNET_DIR/$BINARY_NAME" >> "$LOG_FILE" 2>&1 &
     disown $!

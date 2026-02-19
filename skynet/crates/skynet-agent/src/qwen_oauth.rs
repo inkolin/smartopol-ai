@@ -4,7 +4,7 @@
 //!   1. setup.sh runs OAuth device flow with PKCE → stores credentials on disk
 //!   2. This provider reads the credentials (access_token + refresh_token).
 //!   3. Before each request, checks expiry and refreshes using refresh_token.
-//!   4. Sends OpenAI-compatible requests to dashscope.aliyuncs.com.
+//!   4. Sends OpenAI-compatible requests to portal.qwen.ai.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ use crate::stream::StreamEvent;
 
 const QWEN_TOKEN_URL: &str = "https://chat.qwen.ai/api/v1/oauth2/token";
 const QWEN_CLIENT_ID: &str = "f0304373b74a44d2b584a3fb70ca9e56";
-const QWEN_API_BASE: &str = "https://dashscope.aliyuncs.com/compatible-mode";
+const QWEN_API_BASE: &str = "https://portal.qwen.ai";
 const QWEN_CHAT_PATH: &str = "/v1/chat/completions";
 
 /// OAuth credentials stored on disk.

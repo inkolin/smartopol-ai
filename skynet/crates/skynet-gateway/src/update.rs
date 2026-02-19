@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -6,6 +7,44 @@ use skynet_core::update::{
     compare_versions, InstallMode, ReleaseAsset, ReleaseInfo, UpdateCheckState,
 };
 use tracing::{info, warn};
+
+// ─── ANSI Colors ────────────────────────────────────────────────────────────
+
+fn use_color() -> bool {
+    std::io::stdout().is_terminal() && std::env::var("NO_COLOR").is_err()
+}
+
+fn green(s: &str) -> String {
+    if use_color() {
+        format!("\x1b[32m{}\x1b[0m", s)
+    } else {
+        s.to_string()
+    }
+}
+
+fn bold(s: &str) -> String {
+    if use_color() {
+        format!("\x1b[1m{}\x1b[0m", s)
+    } else {
+        s.to_string()
+    }
+}
+
+fn yellow(s: &str) -> String {
+    if use_color() {
+        format!("\x1b[33m{}\x1b[0m", s)
+    } else {
+        s.to_string()
+    }
+}
+
+fn dim(s: &str) -> String {
+    if use_color() {
+        format!("\x1b[2m{}\x1b[0m", s)
+    } else {
+        s.to_string()
+    }
+}
 
 const GITHUB_API: &str = "https://api.github.com/repos/inkolin/smartopol-ai/releases/latest";
 const USER_AGENT: &str = "skynet-gateway";
@@ -144,14 +183,20 @@ fn platform_asset_suffix() -> &'static str {
 
 /// Check for updates and print the result. Returns true if an update is available.
 pub async fn check_and_print() -> Result<bool> {
-    println!("Checking for updates...");
+    println!("  Current version: {}", bold(VERSION));
+    println!("  Checking for updates to latest version...");
+    println!();
 
     let release = match check_latest_release().await {
         Ok(r) => r,
         Err(e) if e.to_string().contains("no releases published") => {
             println!(
-                "  No releases published yet. You are on v{} (built from source).",
-                VERSION
+                "  {}",
+                green(&format!(
+                    "\u{2713} SmartopolAI is up to date ({}) {}",
+                    VERSION,
+                    dim("(no releases published yet)")
+                ))
             );
             return Ok(false);
         }
@@ -162,15 +207,23 @@ pub async fn check_and_print() -> Result<bool> {
 
     match compare_versions(current, latest) {
         Ordering::Less => {
+            println!(
+                "  {}",
+                yellow(&format!(
+                    "\u{2191} Update available: {} \u{2192} {}",
+                    current, latest
+                ))
+            );
+            println!("  Release: {}", dim(&release.html_url));
             println!();
-            println!("  Update available: v{} -> v{}", current, latest);
-            println!("  Release: {}", release.html_url);
-            println!();
-            println!("  Run: skynet-gateway update");
+            println!("  Run: {}", bold("skynet-gateway update"));
             Ok(true)
         }
         _ => {
-            println!("  You are up to date (v{}).", current);
+            println!(
+                "  {}",
+                green(&format!("\u{2713} SmartopolAI is up to date ({})", current))
+            );
             Ok(false)
         }
     }
@@ -185,11 +238,23 @@ pub async fn apply_update(yes: bool) -> Result<()> {
     let latest = &release.version;
 
     if compare_versions(current, latest) != Ordering::Less {
-        println!("You are already on the latest version (v{}).", current);
+        println!(
+            "  {}",
+            green(&format!(
+                "\u{2713} Already on the latest version ({})",
+                current
+            ))
+        );
         return Ok(());
     }
 
-    println!("Update available: v{} -> v{}", current, latest);
+    println!(
+        "  {}",
+        yellow(&format!(
+            "\u{2191} Update available: {} \u{2192} {}",
+            current, latest
+        ))
+    );
 
     let mode = detect_install_mode();
 
@@ -228,7 +293,10 @@ pub async fn apply_update(yes: bool) -> Result<()> {
     }
 
     println!();
-    println!("Updated to v{}. Restarting...", latest);
+    println!(
+        "  {}",
+        green(&format!("\u{2713} Updated to v{}. Restarting...", latest))
+    );
     restart_service()?;
 
     Ok(())
@@ -380,8 +448,8 @@ pub fn rollback() -> Result<()> {
 
     std::fs::rename(&bak_path, &exe_path).context("failed to restore backup binary")?;
 
-    println!("Rolled back to previous version.");
-    println!("Restarting...");
+    println!("  {}", green("\u{2713} Rolled back to previous version."));
+    println!("  Restarting...");
     restart_service()?;
 
     Ok(())
@@ -477,9 +545,18 @@ pub fn print_version() {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let data_dir = format!("{}/.skynet", home);
 
-    println!("skynet-gateway {} ({}) [{}]", VERSION, GIT_SHA, mode);
-    println!("Protocol: v{}", skynet_core::config::PROTOCOL_VERSION);
-    println!("Data dir: {}", data_dir);
+    println!(
+        "  {} {} {} {}",
+        bold("skynet-gateway"),
+        green(VERSION),
+        dim(&format!("({})", GIT_SHA)),
+        dim(&format!("[{}]", mode))
+    );
+    println!(
+        "  Protocol:  {}",
+        dim(&format!("v{}", skynet_core::config::PROTOCOL_VERSION))
+    );
+    println!("  Data dir:  {}", dim(&data_dir));
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
