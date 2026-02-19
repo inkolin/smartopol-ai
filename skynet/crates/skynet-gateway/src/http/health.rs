@@ -8,7 +8,8 @@ use crate::app::AppState;
 pub async fn health_handler(State(state): State<Arc<AppState>>) -> Json<Value> {
     Json(json!({
         "status": "ok",
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": crate::update::VERSION,
+        "git_sha": crate::update::GIT_SHA,
         "protocol": skynet_core::config::PROTOCOL_VERSION,
         "ws_clients": state.ws_clients.len(),
     }))

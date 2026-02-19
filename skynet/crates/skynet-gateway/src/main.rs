@@ -2,14 +2,78 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::info;
 
+use clap::{Parser, Subcommand};
+
 mod app;
 mod auth;
 mod http;
 pub mod tools;
+pub mod update;
 mod ws;
+
+#[derive(Parser)]
+#[command(
+    name = "skynet-gateway",
+    version = update::VERSION,
+    about = "SmartopolAI gateway — autonomous AI assistant engine"
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Check for and apply updates from GitHub Releases.
+    Update {
+        /// Only check for updates, don't apply.
+        #[arg(long)]
+        check: bool,
+        /// Skip confirmation prompt.
+        #[arg(long, short)]
+        yes: bool,
+        /// Rollback to previous version (binary installs only).
+        #[arg(long)]
+        rollback: bool,
+    },
+    /// Show version, git commit, install mode, and data directory.
+    Version,
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    // Handle subcommands that don't need the full server stack.
+    match cli.command {
+        Some(Commands::Version) => {
+            update::print_version();
+            return Ok(());
+        }
+        Some(Commands::Update {
+            check,
+            yes,
+            rollback,
+        }) => {
+            // Update commands only need minimal logging.
+            tracing_subscriber::fmt()
+                .with_env_filter("skynet_gateway=info")
+                .init();
+
+            if rollback {
+                update::rollback()?;
+            } else if check {
+                update::check_and_print().await?;
+            } else {
+                update::apply_update(yes).await?;
+            }
+            return Ok(());
+        }
+        None => {
+            // Default: start the server (fall through below).
+        }
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -27,6 +91,7 @@ async fn main() -> anyhow::Result<()> {
 
     let bind = config.gateway.bind.clone();
     let port = config.gateway.port;
+    let update_check_on_start = config.update.check_on_start;
 
     // initialize SQLite database — single file for all subsystems
     let db_path = &config.database.path;
@@ -179,7 +244,21 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(async move { scheduler_engine.run(shutdown_rx).await });
 
     let addr: SocketAddr = format!("{}:{}", bind, port).parse()?;
-    info!("Skynet gateway listening on {}", addr);
+    info!(
+        version = update::VERSION,
+        git_sha = update::GIT_SHA,
+        "Skynet gateway listening on {}",
+        addr
+    );
+
+    // Fire-and-forget update check on startup (24h interval, respects config).
+    if update_check_on_start {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let data_dir = std::path::PathBuf::from(format!("{}/.skynet", home));
+        tokio::spawn(async move {
+            update::check_update_on_startup(&data_dir).await;
+        });
+    }
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, router).await?;

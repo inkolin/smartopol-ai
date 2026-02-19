@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Self-Update System)
+
+- **Self-update engine** (`skynet-core/src/update.rs`, `skynet-gateway/src/update.rs`): built-in update management with three install modes — Source (git fetch + cargo build), Binary (tarball download + SHA256 verify + atomic replace), Docker (detection + instructions)
+- **Install mode auto-detection**: walks up from the binary looking for `.git/` (source), checks `/.dockerenv` (Docker), falls back to binary mode
+- **CLI commands**: `skynet-gateway update [--check] [--yes] [--rollback]` for update management; `skynet-gateway version` for detailed version info (version, git SHA, install mode, protocol, data dir)
+- **WS methods**: `system.version`, `system.check_update`, `system.update` — programmatic update management over WebSocket
+- **SHA256 integrity verification**: binary downloads verified against `SHA256SUMS` file published with each release (sha2 + hex crates)
+- **Rollback**: binary installs save current binary as `.bak`; `--rollback` flag restores previous version
+- **Startup update check**: fire-and-forget GitHub API query on startup with 24-hour interval tracking (`~/.skynet/update-check.json`), configurable via `[update] check_on_start` or `SKYNET_UPDATE_CHECK_ON_START` env var
+- **Git SHA in health endpoint**: `GET /health` now returns `git_sha` field; `build.rs` embeds short commit hash at compile time via `git rev-parse --short HEAD`
+- **GitHub Actions release workflow** (`.github/workflows/release.yml`): matrix build for 4 targets (x86_64/aarch64 Linux + macOS), cross-compilation for ARM64 Linux, `SHA256SUMS` generation, automatic GitHub Release creation on `v*` tags
+- **Platform-specific restart**: detached shell script attempts systemd (Linux), launchd (macOS), or direct binary execution
+- **Semver comparison** with `v` prefix stripping and pre-release suffix handling
+- **`[update]` config section** in `skynet-core/src/config.rs` with `check_on_start` field (default: `true`)
+- 8 new unit tests for version comparison, update state interval logic, SHA256SUMS parsing, and install mode detection
+
 ## [0.4.0] - 2026-02-19
 
 ### Added (42+ LLM Providers)

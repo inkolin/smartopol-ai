@@ -9,6 +9,8 @@ name = "skynet-gateway"
 path = "src/main.rs"
 
 [dependencies]
+clap = { workspace = true }
+reqwest = { workspace = true }
 skynet-core    = { path = "../skynet-core" }
 skynet-discord = { path = "../skynet-discord" }
 skynet-protocol = { path = "../skynet-protocol" }

@@ -26,6 +26,25 @@ pub struct SkynetConfig {
     pub channels: ChannelsConfig,
     #[serde(default)]
     pub webhooks: WebhooksConfig,
+    #[serde(default)]
+    pub update: UpdateConfig,
+}
+
+/// Update subsystem configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateConfig {
+    /// Check for updates on server start (default: true).
+    /// Override with env var: SKYNET_UPDATE_CHECK_ON_START=false
+    #[serde(default = "bool_true")]
+    pub check_on_start: bool,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            check_on_start: true,
+        }
+    }
 }
 
 impl Default for SkynetConfig {
@@ -48,6 +67,7 @@ impl Default for SkynetConfig {
             providers: ProvidersConfig::default(),
             channels: ChannelsConfig::default(),
             webhooks: WebhooksConfig::default(),
+            update: UpdateConfig::default(),
         }
     }
 }

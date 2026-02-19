@@ -106,6 +106,15 @@ pub async fn route(
         "terminal.job_kill" => handlers::handle_terminal_job_kill(params, req_id, app).await,
 
         // ------------------------------------------------------------------
+        // System — version & update
+        // ------------------------------------------------------------------
+        "system.version" => handle_system_version(req_id),
+
+        "system.check_update" => handle_system_check_update(req_id).await,
+
+        "system.update" => handle_system_update(params, req_id).await,
+
+        // ------------------------------------------------------------------
         // Fallthrough
         // ------------------------------------------------------------------
         _ => ResFrame::err(
@@ -905,6 +914,109 @@ async fn handle_agent_model(
         // Read-only: return current model.
         let model = app.agent.get_model().await;
         ResFrame::ok(req_id, serde_json::json!({ "model": model }))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// system.* — version and update management via WS
+// ---------------------------------------------------------------------------
+
+/// `system.version` — returns version, git SHA, protocol, and install mode.
+fn handle_system_version(req_id: &str) -> ResFrame {
+    let mode = crate::update::detect_install_mode();
+    ResFrame::ok(
+        req_id,
+        serde_json::json!({
+            "version": crate::update::VERSION,
+            "git_sha": crate::update::GIT_SHA,
+            "protocol": skynet_core::config::PROTOCOL_VERSION,
+            "install_mode": mode.to_string(),
+        }),
+    )
+}
+
+/// `system.check_update` — checks GitHub Releases for a newer version.
+async fn handle_system_check_update(req_id: &str) -> ResFrame {
+    match crate::update::check_latest_release().await {
+        Ok(release) => {
+            let update_available =
+                skynet_core::update::compare_versions(crate::update::VERSION, &release.version)
+                    == std::cmp::Ordering::Less;
+
+            ResFrame::ok(
+                req_id,
+                serde_json::json!({
+                    "update_available": update_available,
+                    "current": crate::update::VERSION,
+                    "latest": release.version,
+                    "release_url": release.html_url,
+                    "published_at": release.published_at,
+                }),
+            )
+        }
+        Err(e) => ResFrame::err(req_id, "UPDATE_CHECK_FAILED", &e.to_string()),
+    }
+}
+
+/// `system.update` — triggers the update flow. Responds before restarting.
+///
+/// Params: `{ "yes"?: bool }` — skip confirmation (default: true for WS).
+async fn handle_system_update(params: Option<&serde_json::Value>, req_id: &str) -> ResFrame {
+    let mode = crate::update::detect_install_mode();
+
+    if let skynet_core::update::InstallMode::Docker = mode {
+        return ResFrame::ok(
+            req_id,
+            serde_json::json!({
+                "status": "docker",
+                "message": "Running in Docker. Update with: docker compose pull && docker compose up -d",
+            }),
+        );
+    }
+
+    // WS callers are assumed to consent (no interactive prompt).
+    let _yes = params
+        .and_then(|p| p.get("yes"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    match crate::update::check_latest_release().await {
+        Ok(release) => {
+            let current = crate::update::VERSION;
+            if skynet_core::update::compare_versions(current, &release.version)
+                != std::cmp::Ordering::Less
+            {
+                return ResFrame::ok(
+                    req_id,
+                    serde_json::json!({
+                        "status": "up_to_date",
+                        "version": current,
+                    }),
+                );
+            }
+
+            // Respond to the client BEFORE restarting.
+            // The actual update is spawned as a background task.
+            let version = release.version.clone();
+            tokio::spawn(async move {
+                // Small delay so the WS response frame gets sent first.
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                if let Err(e) = crate::update::apply_update(true).await {
+                    warn!(error = %e, "WS-triggered update failed");
+                }
+            });
+
+            ResFrame::ok(
+                req_id,
+                serde_json::json!({
+                    "status": "updating",
+                    "from": current,
+                    "to": version,
+                    "message": "Update started. Server will restart shortly.",
+                }),
+            )
+        }
+        Err(e) => ResFrame::err(req_id, "UPDATE_FAILED", &e.to_string()),
     }
 }
 
