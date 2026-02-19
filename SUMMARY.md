@@ -2,7 +2,7 @@
 
 **Audience:** A new developer joining the project who needs to understand what has been built, how it fits together, and what is still missing.
 
-**Last updated:** 2026-02-18
+**Last updated:** 2026-02-19
 
 ---
 
@@ -30,7 +30,7 @@
 
 ## 2. Workspace Structure
 
-The repository root is `skynet/`. It is a Cargo workspace with 11 crates. Each crate owns exactly one concern — gateway logic does not bleed into agent, memory logic does not bleed into sessions.
+The repository root is `skynet/`. It is a Cargo workspace with 12 crates. Each crate owns exactly one concern — gateway logic does not bleed into agent, memory logic does not bleed into sessions.
 
 ```
 skynet/crates/
@@ -45,6 +45,7 @@ skynet/crates/
   skynet-scheduler/   # Tokio timer + SQLite job persistence
   skynet-channels/    # Channel abstraction (trait defined, no adapters yet)
   skynet-terminal/    # PTY sessions, one-shot exec, safety checker
+  skynet-discord/     # Discord adapter (serenity 0.12) — guild + DM, MessageContext pipeline
 ```
 
 ### Dependency Graph (simplified)
@@ -75,12 +76,13 @@ The gateway crate is the only binary in the workspace. It initialises all subsys
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/` | Embedded web chat UI (`static/index.html`, served inline) |
-| `GET` | `/health` | Health check, returns `{"ok": true}` |
+| `GET` | `/health` | Liveness probe — `{"status":"ok","version":"0.2.0","protocol":3,"ws_clients":N}` |
 | `GET` | `/ws` | WebSocket upgrade — OpenClaw protocol v3 |
 | `POST` | `/v1/chat/completions` | OpenAI-compatible streaming SSE endpoint |
-| `POST` | `/webhooks/{source}` | Inbound webhook handler |
+| `POST` | `/webhooks/{source}` | Inbound webhook handler (HMAC-SHA256 or Bearer auth) |
+| `POST` | `/chat` | Simple terminal chat — `{"message":"..."}` → `{"reply":"...","model":"...","tokens_in":N,"tokens_out":N}`. Bearer token auth. Designed for `curl` / setup REPL. |
 
-**WebSocket methods (22 total)**
+**WebSocket methods (23 total)**
 
 | Method | Description |
 |--------|-------------|
@@ -247,12 +249,13 @@ Six tools are registered at startup in `skynet-gateway/src/tools.rs` and passed 
 
 | Tool | Description |
 |------|-------------|
-| `read_file` | Read file contents from disk |
-| `write_file` | Write content to a file |
-| `list_files` | List files in a directory |
-| `search_files` | Search for files by pattern |
-| `execute_command` | Run a shell command via SafetyChecker |
-| `bash` | Persistent bash session via PTY |
+| `read_file` | Read file contents from disk (offset + limit support, 30 K char truncation) |
+| `write_file` | Create or overwrite a file (auto-creates parent dirs) |
+| `list_files` | Directory listing (sizes, types, max 1000 entries) |
+| `search_files` | Recursive substring search (binary skip, `.git` skip, max 100 matches) |
+| `patch_file` | Surgical string replacement — `old_str → new_str`, exact match |
+| `execute_command` | One-shot shell command via SafetyChecker |
+| `bash` | Persistent PTY bash session (`BashSessionTool<C>`) |
 
 Tool calls are visible to users as collapsible badges in the web UI, not inline in the chat bubble. The gateway sends separate `chat.tool` events:
 
@@ -347,7 +350,9 @@ Format: `channel:sender_id` for channel messages, `web:default` for web UI conne
 
 The web UI currently has a single hardcoded session key (`web:default`). This means all web browser connections share the same conversation history. Multi-session support in the UI does not exist yet.
 
-### 3.4 Phase 4 — Channels (skynet-channels)
+### 3.4 Phase 4 — Channels
+
+**Channel abstraction (skynet-channels)**
 
 The `Channel` trait is defined and fully documented:
 
@@ -364,7 +369,29 @@ pub trait Channel: Send + Sync {
 
 `ChannelManager` is implemented with exponential backoff restart logic for crashed adapters.
 
-**No concrete adapters exist yet.** The config schema has `[channels.telegram]` and `[channels.discord]` with `bot_token` fields ready, but the actual Telegram Bot API and Discord Gateway polling code has not been written. This requires bot tokens from the operator.
+**Discord adapter (skynet-discord) — COMPLETE**
+
+The `skynet-discord` crate implements a full Discord bot using `serenity` 0.12 (vendored with a presence serialization patch). It does **not** use the `Channel` trait — instead it calls `process_message_non_streaming` directly via the shared `MessageContext` trait, which is the same pipeline the gateway uses for WebSocket chat.
+
+Key details:
+
+- **Guild + DM support** — responds in server channels and direct messages
+- `require_mention = false` — responds to every message by default (configurable)
+- `dm_allowed = true` — accepts direct messages by default (configurable)
+- **Message splitting** — splits responses at 2000 char Discord limit, preserves newlines
+- **Session keys** — `discord:guild_{gid}:{uid}` for server, `discord:dm:{uid}` for DMs
+- **Startup** — bot spawned in `main.rs` if `[channels.discord] bot_token` is set; starts silently if unconfigured
+- **Tests** — 3 unit tests covering message splitting edge cases
+
+Config:
+```toml
+[channels.discord]
+bot_token       = "your-bot-token"
+require_mention = false   # respond to every message in servers
+dm_allowed      = true    # accept direct messages
+```
+
+**Telegram — planned.** Same `MessageContext` trait means the adapter will be ~1 day of work once a bot token is available.
 
 ### 3.5 Phase 5 — Advanced Subsystems
 
@@ -584,33 +611,55 @@ This allows the UI to render tool calls as separate collapsible components witho
 
 ## 7. How to Run Locally
 
+**Recommended — interactive installer (Phase 6):**
+
 ```bash
-# Set an API key (or configure providers in skynet.toml)
-export ANTHROPIC_API_KEY=sk-ant-...
-
-# Run from workspace root (skynet/)
-cargo run --release -p skynet-gateway
-
-# Or with a config file
-SKYNET_CONFIG=~/.skynet/skynet.toml cargo run --release -p skynet-gateway
-
-# Open web UI
-open http://localhost:18789
+git clone https://github.com/inkolin/smartopol-ai.git
+cd smartopol-ai
+./setup.sh
 ```
 
-Default config location: `~/.skynet/skynet.toml`. Database: `~/.skynet/skynet.db`.
+Or one-liner:
+```bash
+curl -fsSL https://raw.githubusercontent.com/inkolin/smartopol-ai/main/install.sh | bash
+```
 
-The default auth token is `change-me` — set a real token in the config before exposing the port.
+`setup.sh` handles: OS detection, Rust install, build, config wizard with live API key validation, health check, and drops into a terminal REPL chat immediately after setup.
+
+**Manual:**
+
+```bash
+cd skynet
+cargo build --release
+mkdir -p ~/.skynet
+cp config/default.toml ~/.skynet/skynet.toml
+# Edit skynet.toml — set api_key, auth token
+
+./target/release/skynet-gateway
+
+# Verify
+curl http://127.0.0.1:18789/health
+
+# Terminal chat
+curl -X POST http://127.0.0.1:18789/chat \
+  -H "Authorization: Bearer your-token" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello!"}'
+```
+
+Default config: `~/.skynet/skynet.toml`. Database: `~/.skynet/skynet.db`. SOUL.md: `~/.skynet/SOUL.md`.
 
 ---
 
 ## 8. Test Coverage
 
 ```
-skynet-agent        10 tests — provider router, streaming, tool loop
-skynet-terminal     29 tests — safety checker (allowlist + denylist coverage)
-skynet-users         8 tests — resolver, RBAC, permission checks
-skynet-protocol      4 tests — wire frame roundtrip, handshake compatibility
+skynet-agent        10 tests — provider router, streaming, thinking levels
+skynet-terminal     29 tests — safety checker (allowlist + denylist), truncation, Unicode
+skynet-protocol      8 tests — wire frame roundtrip, handshake, auth compatibility
+skynet-sessions      4 tests — session key generation and persistence round-trips
+skynet-discord       3 tests — message splitting (short / long / very-long-word)
+skynet-terminal      1 doc-test
 skynet-memory        0 tests (integration coverage only)
 skynet-scheduler     0 tests (integration coverage only)
 skynet-hooks         0 tests (integration coverage only)
@@ -618,7 +667,7 @@ skynet-channels      0 tests (trait defined, no adapters to test)
 skynet-gateway       0 unit tests (E2E integration testing only)
 ```
 
-Total: **51 tests, 0 failures** across 11 crates.
+Total: **55 tests, 0 failures** across 12 crates, **0 clippy warnings**.
 
 Run with:
 ```bash

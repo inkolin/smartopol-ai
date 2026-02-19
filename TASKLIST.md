@@ -1,8 +1,8 @@
 # SmartopolAI / Skynet — Master Task List
 
-> Last updated: 2026-02-18
-> Status: 11 crates, 52 tests, builds clean, Phase 1-3 complete, terminal + tools wired
-> Branch: `develop` — version 0.2.0
+> Last updated: 2026-02-19
+> Status: 12 crates, 55 tests, 0 warnings — Phase 1-5 complete, Discord live, Phase 6 installer in progress
+> Branch: `develop` — version 0.2.0 (→ 0.3.0 when Phase 6 complete)
 
 Legend: `[x]` done, `[ ]` todo, `[~]` partially done
 
@@ -85,14 +85,18 @@ Legend: `[x]` done, `[ ]` todo, `[~]` partially done
 - [ ] Config: `[channels.telegram] bot_token = "..."` in skynet.toml
 - [ ] Admin notification delivery (approval queue buttons)
 
-### 4.3 Discord Adapter (P0)
-- [ ] Add `serenity` dependency (latest version)
-- [ ] `DiscordChannel` struct implementing `Channel` trait
-- [ ] Gateway intents: GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT
-- [ ] DM + server support (respond in both)
-- [ ] Message formatting (Discord markdown: **bold** ```code blocks```)
-- [ ] 2000 char limit handling
-- [ ] Config: `[channels.discord] bot_token = "..." app_id = "..."` in skynet.toml
+### 4.3 Discord Adapter — COMPLETE
+- [x] `serenity` 0.12 dependency (vendored with bot presence serialization patch)
+- [x] `skynet-discord` crate — serenity `EventHandler`, guild + DM message handling
+- [x] Gateway intents: GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT
+- [x] DM + server support (`dm_allowed = true/false`, `require_mention = true/false`)
+- [x] Message splitting at 2000 char limit, splits on newline boundaries
+- [x] Shared `MessageContext` trait — same `process_message_non_streaming` pipeline as gateway
+- [x] Config: `[channels.discord]` with `bot_token`, `require_mention`, `dm_allowed`
+- [x] Wired into `main.rs` — bot spawned at gateway startup if `bot_token` is set
+- [x] 3 unit tests: message splitting (short / long / very-long-word)
+- [ ] Approval queue with Discord inline keyboard buttons (deferred to Phase 7)
+- [ ] Formally implement `Channel` trait from `skynet-channels` (uses direct pipeline for now)
 
 ### 4.4 WebChat (built-in WS)
 - [ ] WebChat as built-in channel (no external deps, uses existing /ws endpoint)
@@ -169,7 +173,8 @@ Legend: `[x]` done, `[ ]` todo, `[~]` partially done
   - [x] `list_files` — directory listing (sizes, types, max 1000 entries)
   - [x] `search_files` — recursive substring search (binary skip, .git skip, max 100 matches)
   - [x] `execute_command` — one-shot shell command (via TerminalManager, safety-checked)
-  - [ ] `edit_file` — find/replace in file (fuzzy matching, 0.9 threshold from KiloCode)
+  - [x] `patch_file` — surgical string replacement (old_str → new_str, exact match)
+  - [x] `bash` — persistent PTY bash session (via `BashSessionTool<C>`)
   - [ ] `web_search` — search the web (see 5.9)
   - [ ] `web_fetch` — fetch URL, HTML -> markdown
   - [ ] `learn_about_user` — store memory about current user
@@ -237,7 +242,51 @@ Legend: `[x]` done, `[ ]` todo, `[~]` partially done
 
 ---
 
-## Phase 6: Security + Polish
+## Phase 6: Setup Experience — IN PROGRESS
+
+### 6.1 Installer scripts (DONE)
+- [x] `setup.sh` — Linux/macOS interactive installer
+  - OS detection (Linux/Darwin), aborts on Windows with WSL2 link
+  - Rust auto-install via `rustup` if missing; version check (1.80+)
+  - Real-time API key validation (curl to Anthropic / OpenAI / Ollama)
+  - `back` command to switch providers without restarting setup
+  - Wizard: provider + API key, auth token (auto-generate or custom), port, optional Discord bot
+  - Binary build (`cargo build --release`), copy to `~/.skynet/`
+  - Creates `~/.skynet/tools/`, copies `SOUL.md` from template
+  - Health check (polls `/health` up to 12 s)
+  - Creates `~/.skynet/.first-run` marker for agent's first-run checklist
+  - Launches gateway in background, drops into terminal REPL chat
+  - `/setup-model` command in REPL — reconfigures provider + key + restarts gateway
+- [x] `install.sh` — one-liner curl wrapper
+  - `curl -fsSL https://raw.githubusercontent.com/inkolin/smartopol-ai/main/install.sh | bash`
+  - Clones repo to `~/.local/share/smartopol-ai` (or `$INSTALL_DIR`)
+  - Update-aware: `git pull --ff-only` if repo already exists
+  - Delegates to `setup.sh`
+
+### 6.2 Agent Identity Template (DONE)
+- [x] `skynet/config/SOUL.template.md`
+  - Identity, personality, core rules, capability list
+  - Plugin registry reference (`github.com/inkolin/smartopol-plugins`)
+  - First-run checklist: agent greets user, asks about auto-start, offers plugins, deletes `.first-run`
+  - systemd (Linux) + launchd (macOS) auto-start instructions the AI runs autonomously
+
+### 6.3 Terminal Chat HTTP Endpoint (DONE)
+- [x] `POST /chat` in `skynet-gateway/src/http/chat.rs`
+  - `Authorization: Bearer <token>` auth (same token as WebSocket)
+  - Request: `{"message": "..."}` → Response: `{"reply": "...", "model": "...", "tokens_in": N, "tokens_out": N}`
+  - Error: `{"error": "..."}` with appropriate HTTP status
+  - Works with plain `curl` — no external tooling required
+
+### 6.4 Remaining (TODO)
+- [ ] Docker image — single-container (gateway + SQLite), target ~25 MB
+- [ ] `docker-compose.yml` — volume mount for `~/.skynet/`, env-var config
+- [ ] Pre-built binaries via GitHub Releases (`linux-x86_64`, `macos-aarch64`)
+- [ ] GitHub Actions CI — `cargo check + clippy + test` on every PR
+- [ ] Windows — WSL2 docs for now, native `.exe` is Phase 6b
+
+---
+
+## Phase 7: Security + Polish
 
 ### 6.1 Execution Guardrails (partially done)
 - [x] **Command denylist**: rm -rf, fork bomb, pipe-to-shell, sudo, shutdown, dd, mkfs, etc.
@@ -325,35 +374,34 @@ Legend: `[x]` done, `[ ]` todo, `[~]` partially done
 ## Priority Order (what to work on next)
 
 ### Must-do BEFORE public beta (P0)
-1. ~~Tool execution loop (5.6)~~ — DONE (core loop + 5 built-in tools + gateway wired)
+1. ~~Tool execution loop (5.6)~~ — DONE
 2. ~~Wire terminal into gateway (5.3)~~ — DONE
-3. **Wire hooks into gateway** (5.2) — observability and extensibility ← NEXT
+3. ~~Discord adapter (4.3)~~ — DONE (guild + DM, MessageContext pipeline)
 4. ~~Execution guardrails (6.1) — command safety~~ — DONE (filesystem sandbox still TODO)
-5. **Telegram adapter** (4.2) — first real channel (needs bot token)
-6. **Discord adapter** (4.3) — second channel (needs bot token)
-7. **Secrets vault** (6.2) — API keys must not be in plain text config
+5. ~~Setup experience (6.1–6.3)~~ — DONE (setup.sh, install.sh, POST /chat, terminal REPL)
+6. **Finish Phase 6** (6.4) — Docker image + GitHub Actions CI + pre-built binaries ← NEXT
+7. **Wire hooks into gateway** (5.2) — observability and extensibility
+8. **Context management / auto-condensation** (5.7) — long conversations degrade without this
+9. **Secrets vault** (7.2) — API keys must not be in plain text config
+10. **Telegram adapter** (4.2) — next channel (needs bot token)
 
 ### Should-do for useful product (P1)
-8. **Context management / auto-condensation** (5.7) — long conversations break without this
-9. **Subagent spawning** (5.5) — complex tasks need delegation
-10. **MCP integration** (5.8) — extensibility via standard protocol
-11. **Web search** (5.9) — AI without web search is limited
-12. **Loop detection** (5.5) — prevent runaway agents
-13. **WebChat channel** (4.4) — built-in web interface
-14. **Model router** (5.10) — cost savings via smart model selection
-15. **DeepSeek provider** (5.11) — popular cost-effective alternative
+11. **Subagent spawning** (5.5) — complex tasks need delegation
+12. **MCP integration** (5.8) — extensibility via standard protocol
+13. **Web search** (5.9) — AI without web search is limited
+14. **WebChat channel** (4.4) — built-in web interface
+15. **Model router** (5.10) — cost savings via smart model selection
+16. **DeepSeek provider** (5.11) — popular cost-effective alternative
 
 ### Nice-to-have (P2)
-16. **Additional providers** (xAI, Vertex, Azure)
-17. **Approval queue with admin buttons** (6.5)
-18. **Content filter** (6.4)
-19. **Prompt injection scanning** (6.3)
-20. **Audit log** (6.6)
-21. **CLI binary** (6.7)
-22. **Web GUI** (6.8)
+17. **Additional providers** (xAI, Vertex, Azure)
+18. **Approval queue with Discord buttons** (4.3 remaining)
+19. **Content filter** (7.4)
+20. **Prompt injection scanning** (7.3)
+21. **Audit log** (7.6)
+22. **Web GUI** (Phase 8)
 23. **Semantic/vector memory** (usearch crate)
 24. **Browser automation**
-25. **CI/CD pipeline**
 
 ---
 
@@ -383,14 +431,15 @@ Secrets vault (6.2) ───────── needed before sharing config fil
 
 | Metric | Current |
 |--------|---------|
-| Version | 0.2.0 |
-| Crates | 11 |
-| Tests | 52 pass, 0 fail |
-| Warnings | 2 (dead_code, pre-existing on develop) |
-| WS methods | 23 (13 + 10 terminal) |
-| HTTP endpoints | 4 (/health, /ws, /v1/chat/completions, /webhooks/:source) |
+| Version | 0.2.0 (→ 0.3.0 after Phase 6 complete) |
+| Crates | 12 |
+| Tests | 55 pass, 0 fail |
+| Warnings | 0 |
+| WS methods | 23 (13 core + 10 terminal) |
+| HTTP endpoints | 5 (`/health`, `/ws`, `/v1/chat/completions`, `/webhooks/:source`, `/chat`) |
 | LLM providers | 3 (Anthropic, OpenAI, Ollama) + ProviderRouter + NullProvider |
-| AI tools | 5 (read_file, write_file, list_files, search_files, execute_command) |
-| Tool loop | max 25 iterations, non-streaming with Anthropic tool_use |
-| Done tasks (est.) | ~65% of Phase 1-5 scope |
-| Remaining (est.) | ~70 work items across Phase 4-6 |
+| AI tools | 7 (`read_file`, `write_file`, `list_files`, `search_files`, `patch_file`, `execute_command`, `bash` PTY) |
+| Tool loop | max 25 iterations, streaming + non-streaming, Anthropic tool_use |
+| Channels live | 1 (Discord — guild + DM) |
+| Phase 1–5 | COMPLETE |
+| Phase 6 | IN PROGRESS (installer ✓, terminal chat ✓ · Docker ✗, binaries ✗) |
