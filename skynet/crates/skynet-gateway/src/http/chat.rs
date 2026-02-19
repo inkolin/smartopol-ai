@@ -1,11 +1,15 @@
-//! Simple terminal chat endpoint — POST /chat
+//! Full-pipeline terminal chat endpoint — POST /chat
 //!
 //! Designed for first-run conversations and local scripting.
 //! No external tooling required — works with plain `curl`.
 //!
+//! Uses the shared `process_message_non_streaming` pipeline, giving the AI
+//! access to tools (bash, file I/O, knowledge search, etc.), session history,
+//! memory context, and the full agentic tool loop.
+//!
 //! Auth: `Authorization: Bearer <token>` header (same token as WebSocket).
 //!
-//! Request:  `{"message": "hello"}`
+//! Request:  `{"message": "hello"}` (optional: `session_id`, `model`)
 //! Response: `{"reply": "...", "model": "...", "tokens_in": 0, "tokens_out": 0}`
 //! Error:    `{"error": "..."}`
 
@@ -18,12 +22,21 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::warn;
 
+use skynet_agent::pipeline::process_message_non_streaming;
+
 use crate::app::AppState;
 
 #[derive(Deserialize)]
 pub struct ChatRequest {
     /// The message to send to the AI agent.
     pub message: String,
+    /// Optional session key suffix. Defaults to `"default"`.
+    /// Full key becomes `http:terminal:{session_id}`.
+    #[serde(default)]
+    pub session_id: Option<String>,
+    /// Optional per-request model override.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -39,9 +52,13 @@ pub struct ChatError {
     pub error: String,
 }
 
-/// POST /chat — simple non-streaming terminal chat.
+/// POST /chat — full-pipeline non-streaming terminal chat.
 ///
 /// Requires `Authorization: Bearer <token>` when auth mode is `token`.
+///
+/// The AI gets the same capabilities as the WebSocket `chat.send` path:
+/// tools, session history, memory context, hot knowledge, skill index,
+/// and an agentic tool loop (up to 25 iterations).
 pub async fn chat_handler(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -66,13 +83,27 @@ pub async fn chat_handler(
         ));
     }
 
-    // ── Call agent ────────────────────────────────────────────────────────────
-    match state.agent.chat(&req.message).await {
-        Ok(resp) => Ok(Json(ChatReply {
-            reply: resp.content,
-            model: resp.model,
-            tokens_in: resp.tokens_in,
-            tokens_out: resp.tokens_out,
+    // ── Build session key ────────────────────────────────────────────────────
+    let session_suffix = req.session_id.as_deref().unwrap_or("default");
+    let session_key = format!("http:terminal:{session_suffix}");
+
+    // ── Run full pipeline (tools, history, memory, tool loop) ────────────────
+    match process_message_non_streaming(
+        &state,
+        &session_key,
+        "terminal",
+        &req.message,
+        None,
+        req.model.as_deref(),
+        None,
+    )
+    .await
+    {
+        Ok(result) => Ok(Json(ChatReply {
+            reply: result.content,
+            model: result.model,
+            tokens_in: result.tokens_in,
+            tokens_out: result.tokens_out,
         })),
         Err(e) => {
             warn!(error = %e, "POST /chat failed");

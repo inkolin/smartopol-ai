@@ -146,35 +146,201 @@ impl LlmProvider for OpenAiProvider {
 }
 
 pub(crate) fn build_request_body(req: &ChatRequest, stream: bool) -> serde_json::Value {
-    // OpenAI uses a flat messages array; system is prepended as a system message.
-    let mut messages = vec![serde_json::json!({
-        "role": "system",
-        "content": req.system,
-    })];
+    // When the tool loop has built raw_messages (structured content blocks with
+    // tool_call / tool results), use OpenAI's native format for those messages.
+    let messages: Vec<serde_json::Value> = if let Some(ref raw) = req.raw_messages {
+        // Prepend system message, then convert Anthropic-style raw messages
+        // to OpenAI format (tool_use blocks → tool_calls, tool_result → tool role).
+        let mut msgs = vec![serde_json::json!({
+            "role": "system",
+            "content": req.system,
+        })];
+        for raw_msg in raw {
+            msgs.extend(convert_raw_message_to_openai(raw_msg));
+        }
+        msgs
+    } else {
+        // Simple path: plain string messages.
+        let mut msgs = vec![serde_json::json!({
+            "role": "system",
+            "content": req.system,
+        })];
+        for m in &req.messages {
+            msgs.push(serde_json::json!({
+                "role": m.role,
+                "content": m.content,
+            }));
+        }
+        msgs
+    };
 
-    for m in &req.messages {
-        messages.push(serde_json::json!({
-            "role": m.role,
-            "content": m.content,
-        }));
-    }
-
-    serde_json::json!({
+    let mut body = serde_json::json!({
         "model": req.model,
         "messages": messages,
         "max_tokens": req.max_tokens,
         "stream": stream,
-    })
+    });
+
+    // Inject tool definitions when the caller has provided any.
+    if !req.tools.is_empty() {
+        let tools: Vec<serde_json::Value> = req
+            .tools
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.input_schema,
+                    }
+                })
+            })
+            .collect();
+        body["tools"] = serde_json::json!(tools);
+    }
+
+    body
+}
+
+/// Convert a single raw message (Anthropic-style content blocks) to one or more
+/// OpenAI-format messages. Anthropic uses `tool_use` / `tool_result` content
+/// blocks inside user/assistant messages; OpenAI uses `tool_calls` on the
+/// assistant message and separate `tool` role messages for results.
+fn convert_raw_message_to_openai(msg: &serde_json::Value) -> Vec<serde_json::Value> {
+    let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("user");
+    let content = msg.get("content");
+
+    // If content is a plain string, pass through as-is.
+    if content.map(|c| c.is_string()).unwrap_or(true) {
+        return vec![msg.clone()];
+    }
+
+    let blocks = match content.and_then(|c| c.as_array()) {
+        Some(arr) => arr,
+        None => return vec![msg.clone()],
+    };
+
+    // Check what types of blocks we have.
+    let has_tool_use = blocks
+        .iter()
+        .any(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_use"));
+    let has_tool_result = blocks
+        .iter()
+        .any(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_result"));
+
+    if has_tool_use && role == "assistant" {
+        // Convert Anthropic assistant message with tool_use blocks → OpenAI tool_calls.
+        let mut text_parts = Vec::new();
+        let mut tool_calls = Vec::new();
+
+        for block in blocks {
+            match block.get("type").and_then(|t| t.as_str()) {
+                Some("text") => {
+                    if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
+                        text_parts.push(t.to_string());
+                    }
+                }
+                Some("tool_use") => {
+                    let id = block.get("id").and_then(|v| v.as_str()).unwrap_or("call_0");
+                    let name = block
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    let input = block.get("input").cloned().unwrap_or(serde_json::json!({}));
+                    tool_calls.push(serde_json::json!({
+                        "id": id,
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "arguments": input.to_string(),
+                        }
+                    }));
+                }
+                _ => {}
+            }
+        }
+
+        let content_val = if text_parts.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::json!(text_parts.join("\n"))
+        };
+
+        vec![serde_json::json!({
+            "role": "assistant",
+            "content": content_val,
+            "tool_calls": tool_calls,
+        })]
+    } else if has_tool_result {
+        // Convert Anthropic tool_result blocks → separate OpenAI "tool" role messages.
+        blocks
+            .iter()
+            .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_result"))
+            .map(|b| {
+                let tool_call_id = b
+                    .get("tool_use_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("call_0");
+                let result_content = b.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                serde_json::json!({
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": result_content,
+                })
+            })
+            .collect()
+    } else {
+        // Plain content blocks — concatenate text.
+        let text: String = blocks
+            .iter()
+            .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        vec![serde_json::json!({
+            "role": role,
+            "content": text,
+        })]
+    }
 }
 
 pub(crate) fn parse_response(resp: ApiResponse) -> ChatResponse {
+    use crate::provider::ToolCall;
+
     let choice = resp.choices.into_iter().next();
     let content = choice
         .as_ref()
         .and_then(|c| c.message.content.as_deref())
         .unwrap_or("")
         .to_string();
-    let stop_reason = choice.and_then(|c| c.finish_reason).unwrap_or_default();
+
+    // Parse tool calls from OpenAI format.
+    let tool_calls: Vec<ToolCall> = choice
+        .as_ref()
+        .and_then(|c| c.message.tool_calls.as_ref())
+        .map(|calls| {
+            calls
+                .iter()
+                .map(|tc| {
+                    let id = tc.id.clone();
+                    let name = tc.function.name.clone();
+                    let input: serde_json::Value =
+                        serde_json::from_str(&tc.function.arguments).unwrap_or_default();
+                    ToolCall { id, name, input }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Map OpenAI finish reasons to our canonical stop_reason.
+    // OpenAI uses "tool_calls" when the model wants to call tools;
+    // the tool loop checks for "tool_use" (Anthropic convention).
+    let raw_reason = choice.and_then(|c| c.finish_reason).unwrap_or_default();
+    let stop_reason = if raw_reason == "tool_calls" {
+        "tool_use".to_string()
+    } else {
+        raw_reason
+    };
 
     ChatResponse {
         content,
@@ -186,7 +352,7 @@ pub(crate) fn parse_response(resp: ApiResponse) -> ChatResponse {
             .map(|u| u.completion_tokens)
             .unwrap_or(0),
         stop_reason,
-        tool_calls: Vec::new(),
+        tool_calls,
     }
 }
 
@@ -307,6 +473,19 @@ pub(crate) struct Choice {
 #[derive(Deserialize)]
 pub(crate) struct ChatMessage {
     pub(crate) content: Option<String>,
+    pub(crate) tool_calls: Option<Vec<ApiToolCall>>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ApiToolCall {
+    pub(crate) id: String,
+    pub(crate) function: ApiFunction,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ApiFunction {
+    pub(crate) name: String,
+    pub(crate) arguments: String,
 }
 
 #[derive(Deserialize)]

@@ -407,22 +407,23 @@ wizard_provider() {
                 echo -e "     3) Groq              ${GREEN}(free tier)${RESET}"
                 echo    "     4) DeepSeek          (very cheap)"
                 echo -e "     5) OpenRouter        ${GREEN}(200+ models, one key)${RESET}"
-                echo    "     6) xAI (Grok)"
-                echo    "     7) Mistral AI"
-                echo    "     8) Perplexity"
+                echo -e "     6) Requesty          ${CYAN}(smart router, 200+ models)${RESET}"
+                echo    "     7) xAI (Grok)"
+                echo    "     8) Mistral AI"
+                echo    "     9) Perplexity"
                 echo
                 echo -e "    ${CYAN}── More providers ──${RESET}"
-                echo -e "     9) Google Gemini     ${GREEN}(free tier)${RESET}"
-                echo    "    10) Together AI       16) Moonshot (Kimi)"
-                echo -e "    11) Fireworks AI      17) GLM / Zhipu AI  ${GREEN}(free)${RESET}"
-                echo -e "    12) Cerebras          ${GREEN}(free)${RESET}  18) Doubao (ByteDance)"
-                echo -e "    13) SambaNova         ${GREEN}(free)${RESET}  19) Qwen (Alibaba)"
-                echo    "    14) Cohere            20) Z.AI"
-                echo    "    15) Hyperbolic        21) 01.AI (Yi)"
+                echo -e "    10) Google Gemini     ${GREEN}(free tier)${RESET}"
+                echo    "    11) Together AI       17) Moonshot (Kimi)"
+                echo -e "    12) Fireworks AI      18) GLM / Zhipu AI  ${GREEN}(free)${RESET}"
+                echo -e "    13) Cerebras          ${GREEN}(free)${RESET}  19) Doubao (ByteDance)"
+                echo -e "    14) SambaNova         ${GREEN}(free)${RESET}  20) Qwen (Alibaba)"
+                echo    "    15) Cohere            21) Z.AI"
+                echo    "    16) Hyperbolic        22) 01.AI (Yi)"
                 echo
                 echo -e "    ${CYAN}── Other ──${RESET}"
-                echo    "    22) MiniMax / Hunyuan / StepFun / Novita / Lepton / etc."
-                echo    "    23) Custom OpenAI-compatible endpoint"
+                echo    "    23) MiniMax / Hunyuan / StepFun / Novita / Lepton / etc."
+                echo    "    24) Custom OpenAI-compatible endpoint"
                 echo -e "     0) ${YELLOW}Back${RESET}"
                 echo
                 local pc=""
@@ -437,29 +438,31 @@ wizard_provider() {
                     3)  reg_id="groq" ;;
                     4)  reg_id="deepseek" ;;
                     5)  reg_id="openrouter" ;;
-                    6)  reg_id="xai" ;;
-                    7)  reg_id="mistral" ;;
-                    8)  reg_id="perplexity" ;;
-                    9)  reg_id="gemini" ;;
-                    10) reg_id="together" ;;
-                    11) reg_id="fireworks" ;;
-                    12) reg_id="cerebras" ;;
-                    13) reg_id="sambanova" ;;
-                    14) reg_id="cohere" ;;
-                    15) reg_id="hyperbolic" ;;
-                    16) reg_id="moonshot" ;;
-                    17) reg_id="glm" ;;
-                    18) reg_id="doubao" ;;
-                    19) reg_id="qwen" ;;
-                    20) reg_id="zai" ;;
-                    22)
+                    6)  reg_id="requesty" ;;
+                    7)  reg_id="xai" ;;
+                    8)  reg_id="mistral" ;;
+                    9)  reg_id="perplexity" ;;
+                    10) reg_id="gemini" ;;
+                    11) reg_id="together" ;;
+                    12) reg_id="fireworks" ;;
+                    13) reg_id="cerebras" ;;
+                    14) reg_id="sambanova" ;;
+                    15) reg_id="cohere" ;;
+                    16) reg_id="hyperbolic" ;;
+                    17) reg_id="moonshot" ;;
+                    18) reg_id="glm" ;;
+                    19) reg_id="doubao" ;;
+                    20) reg_id="qwen" ;;
+                    21) reg_id="zai" ;;
+                    22) reg_id="yi" ;;
+                    23)
                         echo -e "  ${BOLD}Enter provider ID:${RESET} (minimax, hunyuan, stepfun, novita,"
-                        echo    "  lepton, corethink, featherless, requesty, glama, chutes)"
+                        echo    "  lepton, corethink, featherless, glama, chutes)"
                         local sub_id=""
                         prompt sub_id "ID" ""
                         reg_id="$sub_id"
                         ;;
-                    23)
+                    24)
                         # Custom endpoint
                         PROVIDER_NAME="custom"
                         local custom_name="" custom_url="" custom_model=""
@@ -560,12 +563,26 @@ api_key = \"${api_key}\""
                     fi
 
                     local endpoint="${reg_base}${reg_path}"
-                    if validate_api_key "openai-compat" "$api_key" "$endpoint"; then
-                        success "${reg_name} connection verified"
-                    else
-                        warn "Could not verify ${reg_name} — key might be wrong or server unreachable."
-                        warn "Continuing anyway — fix in ${CONFIG_DEST} if needed."
-                    fi
+                    while true; do
+                        if validate_api_key "openai-compat" "$api_key" "$endpoint"; then
+                            success "${reg_name} connection verified"
+                            break
+                        else
+                            echo
+                            warn "Could not verify ${reg_name} — key might be wrong or server unreachable."
+                            echo -ne "  Press Enter to retry with a new key, or type ${CYAN}skip${RESET} to continue anyway: "
+                            local retry_cmd; read -r retry_cmd
+                            if [[ "$retry_cmd" == "skip" ]]; then
+                                warn "Continuing with unverified key — fix in ${CONFIG_DEST} if needed."
+                                break
+                            fi
+                            prompt_secret api_key "${reg_name} API key"
+                            if [[ -z "$api_key" ]]; then
+                                warn "API key cannot be empty."
+                                continue
+                            fi
+                        fi
+                    done
 
                     PROVIDER_TOML="[[providers.openai_compat]]
 id      = \"${reg_id}\"
@@ -818,8 +835,114 @@ location   = \"${gcp_location}\""
         $done && break
     done
 
+    # ── Model selection ──────────────────────────────────────────────────
+    choose_model "$PROVIDER_NAME" "$AGENT_MODEL"
+
     success "Provider: ${BOLD}${PROVIDER_NAME}${RESET} / model: ${BOLD}${AGENT_MODEL}${RESET}"
     echo
+}
+
+# ── Model selection ──────────────────────────────────────────────────────────
+# Shows a menu of popular models for the chosen provider, or a free-text
+# prompt for providers without a curated list.
+choose_model() {
+    local provider="$1" default_model="$2"
+
+    echo
+    echo -e "${BOLD}  Choose your model:${RESET}"
+    echo
+
+    case "$provider" in
+        requesty|openrouter|glama)
+            echo "    1) openai/gpt-4o               (fast, good balance)"
+            echo "    2) anthropic/claude-sonnet-4-6  (excellent coding)"
+            echo "    3) anthropic/claude-opus-4-6    (most capable)"
+            echo "    4) google/gemini-2.5-flash      (fast, cheap)"
+            echo "    5) deepseek/deepseek-chat       (very cheap)"
+            echo "    6) Custom model"
+            echo
+            local mc=""
+            prompt mc "Model" "1"
+            case "$mc" in
+                1) AGENT_MODEL="openai/gpt-4o" ;;
+                2) AGENT_MODEL="anthropic/claude-sonnet-4-6" ;;
+                3) AGENT_MODEL="anthropic/claude-opus-4-6" ;;
+                4) AGENT_MODEL="google/gemini-2.5-flash" ;;
+                5) AGENT_MODEL="deepseek/deepseek-chat" ;;
+                6|*)
+                    local custom_model=""
+                    prompt custom_model "Model name (e.g. meta-llama/llama-4-maverick)" "$default_model"
+                    AGENT_MODEL="$custom_model"
+                    ;;
+            esac
+            ;;
+        anthropic)
+            echo "    1) claude-sonnet-4-6     (recommended)"
+            echo "    2) claude-opus-4-6       (most capable)"
+            echo "    3) claude-haiku-4-5      (fastest, cheapest)"
+            echo "    4) Custom model"
+            echo
+            local mc=""
+            prompt mc "Model" "1"
+            case "$mc" in
+                1) AGENT_MODEL="claude-sonnet-4-6" ;;
+                2) AGENT_MODEL="claude-opus-4-6" ;;
+                3) AGENT_MODEL="claude-haiku-4-5" ;;
+                4|*)
+                    local custom_model=""
+                    prompt custom_model "Model name" "$default_model"
+                    AGENT_MODEL="$custom_model"
+                    ;;
+            esac
+            ;;
+        openai)
+            echo "    1) gpt-4o                (recommended)"
+            echo "    2) gpt-4o-mini           (faster, cheaper)"
+            echo "    3) o3                    (reasoning)"
+            echo "    4) Custom model"
+            echo
+            local mc=""
+            prompt mc "Model" "1"
+            case "$mc" in
+                1) AGENT_MODEL="gpt-4o" ;;
+                2) AGENT_MODEL="gpt-4o-mini" ;;
+                3) AGENT_MODEL="o3" ;;
+                4|*)
+                    local custom_model=""
+                    prompt custom_model "Model name" "$default_model"
+                    AGENT_MODEL="$custom_model"
+                    ;;
+            esac
+            ;;
+        copilot)
+            echo "    1) gpt-4o                (recommended)"
+            echo "    2) claude-sonnet-4-6     (if available)"
+            echo "    3) Custom model"
+            echo
+            local mc=""
+            prompt mc "Model" "1"
+            case "$mc" in
+                1) AGENT_MODEL="gpt-4o" ;;
+                2) AGENT_MODEL="claude-sonnet-4-6" ;;
+                3|*)
+                    local custom_model=""
+                    prompt custom_model "Model name" "$default_model"
+                    AGENT_MODEL="$custom_model"
+                    ;;
+            esac
+            ;;
+        *)
+            # For other providers, show default and let user change it
+            echo -e "    Default: ${BOLD}${default_model}${RESET}"
+            echo -e "    Press Enter to keep, or type a different model name."
+            echo
+            local custom_model=""
+            prompt custom_model "Model" "$default_model"
+            AGENT_MODEL="$custom_model"
+            ;;
+    esac
+
+    success "Model: ${BOLD}${AGENT_MODEL}${RESET}"
 }
 
 version_gte() {
@@ -1151,7 +1274,7 @@ send_chat_message() {
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${AUTH_TOKEN}" \
         -w "\n%{http_code}" \
-        --max-time 60 \
+        --max-time 120 \
         -d "$json_body" \
         "http://127.0.0.1:${GATEWAY_PORT}/chat" 2>/dev/null)
 
@@ -1313,7 +1436,7 @@ repl_chat() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
     echo -e "${BOLD}  SmartopolAI Terminal${RESET}"
     echo -e "  Type your message and press Enter."
-    echo -e "  ${CYAN}/setup-model${RESET} — switch AI provider  ·  ${CYAN}/exit${RESET} — quit"
+    echo -e "  ${CYAN}/setup-model${RESET} — switch AI provider  ·  ${CYAN}/model <name>${RESET} — switch model  ·  ${CYAN}/exit${RESET} — quit"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
     echo
 
@@ -1350,6 +1473,34 @@ repl_chat() {
             disown $!
             sleep 2
             success "Gateway restarted with provider: ${BOLD}${PROVIDER_NAME}${RESET}"
+            echo
+            continue
+        fi
+
+        if [[ "$user_input" == /model* ]]; then
+            local new_model="${user_input#/model}"
+            new_model="${new_model## }"  # trim leading space
+            if [[ -z "$new_model" ]]; then
+                # Show current model
+                local current_model
+                current_model=$(grep '^model' "$CONFIG_DEST" | head -1 | sed 's/.*= *"//;s/".*//')
+                echo -e "  Current model: ${BOLD}${current_model}${RESET}"
+                echo -e "  Usage: ${CYAN}/model <name>${RESET}  (e.g. /model anthropic/claude-opus-4-6)"
+            else
+                # Update model in config and restart gateway
+                if [[ "$OS" == "Darwin" ]]; then
+                    sed -i '' "s/^model .*/model    = \"${new_model}\"/" "$CONFIG_DEST"
+                else
+                    sed -i "s/^model .*/model    = \"${new_model}\"/" "$CONFIG_DEST"
+                fi
+                AGENT_MODEL="$new_model"
+                pkill -f "$BINARY_NAME" 2>/dev/null || true
+                sleep 1
+                "$SKYNET_DIR/$BINARY_NAME" >> "$LOG_FILE" 2>&1 &
+                disown $!
+                sleep 2
+                success "Model changed to: ${BOLD}${new_model}${RESET}"
+            fi
             echo
             continue
         fi
