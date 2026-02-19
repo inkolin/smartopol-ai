@@ -141,6 +141,18 @@ pub struct TelegramConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscordConfig {
     pub bot_token: String,
+    /// When true, guild messages are only processed when the bot is @mentioned.
+    /// Defaults to false (respond to all messages in channels).
+    #[serde(default)]
+    pub require_mention: bool,
+    /// When true, direct messages (DMs) are accepted.
+    /// Defaults to true.
+    #[serde(default = "bool_true")]
+    pub dm_allowed: bool,
+}
+
+fn bool_true() -> bool {
+    true
 }
 
 /// Authentication mode for an incoming webhook source.

@@ -20,6 +20,7 @@ impl EventBroadcaster {
 
     /// Push a JSON event string to all subscribers.
     /// Silently drops if no subscribers exist.
+    #[allow(dead_code)]
     pub fn send(&self, payload: String) {
         let _ = self.tx.send(payload);
     }

@@ -1,4 +1,3 @@
-use axum::extract::ws::{Message, WebSocket};
 use skynet_protocol::{
     frames::{InboundFrame, ResFrame},
     handshake::ConnectParams,
@@ -11,14 +10,12 @@ use crate::app::AppState;
 use crate::ws::connection::ConnState;
 use crate::ws::{dispatch, handshake, send};
 
-type WsSink = futures_util::stream::SplitSink<WebSocket, Message>;
-
 /// Process one inbound WS text frame. Returns the new connection state.
 pub async fn handle(
     conn_id: &str,
     text: &str,
     state: ConnState,
-    tx: &mut WsSink,
+    tx: &send::SharedSink,
     app: &Arc<AppState>,
 ) -> ConnState {
     let frame: InboundFrame = match serde_json::from_str(text) {
@@ -40,7 +37,7 @@ pub async fn handle(
 async fn handle_auth(
     conn_id: &str,
     frame: InboundFrame,
-    tx: &mut WsSink,
+    tx: &send::SharedSink,
     app: &Arc<AppState>,
 ) -> ConnState {
     let Some(req) = frame.as_req() else {
@@ -51,7 +48,7 @@ async fn handle_auth(
 
     if req.method != CONNECT {
         let res = ResFrame::err(&req.id, "PROTOCOL_ERROR", "must authenticate first");
-        let _ = send::json(tx, &res).await;
+        let _ = send::json_shared(tx, &res).await;
         return ConnState::AwaitingConnect {
             _nonce: String::new(),
         };
@@ -61,7 +58,7 @@ async fn handle_auth(
         Some(p) => p,
         None => {
             let res = ResFrame::err(&req.id, "PROTOCOL_ERROR", "invalid connect params");
-            let _ = send::json(tx, &res).await;
+            let _ = send::json_shared(tx, &res).await;
             return ConnState::Closing;
         }
     };
@@ -70,25 +67,49 @@ async fn handle_auth(
         Ok(()) => {
             let hello = handshake::hello_ok_payload();
             let res = ResFrame::ok(&req.id, hello);
-            let _ = send::json(tx, &res).await;
+            let _ = send::json_shared(tx, &res).await;
             info!(conn_id, "client authenticated");
             ConnState::Authenticated
         }
         Err(reason) => {
             warn!(conn_id, %reason, "auth failed");
             let res = ResFrame::err(&req.id, "AUTH_FAILED", &reason);
-            let _ = send::json(tx, &res).await;
+            let _ = send::json_shared(tx, &res).await;
             ConnState::Closing
         }
     }
 }
 
 /// Post-auth: dispatch method calls to handlers.
-/// Passes WS sink for methods that need to send intermediate events (streaming).
-async fn handle_method(frame: InboundFrame, tx: &mut WsSink, app: &Arc<AppState>) -> ConnState {
-    if let Some(req) = frame.as_req() {
-        let res = dispatch::route(&req.method, req.params.as_ref(), &req.id, app, tx).await;
-        let _ = send::json(tx, &res).await;
+///
+/// `chat.send` is spawned as an independent background task so the connection
+/// loop can keep reading new messages. All other methods run inline (they are
+/// fast, non-blocking operations).
+async fn handle_method(
+    frame: InboundFrame,
+    tx: &send::SharedSink,
+    app: &Arc<AppState>,
+) -> ConnState {
+    let Some(req) = frame.as_req() else {
+        return ConnState::Authenticated;
+    };
+
+    if req.method == "chat.send" {
+        let app2 = Arc::clone(app);
+        let tx2 = Arc::clone(tx);
+        let params_owned = req.params;
+        let req_id_owned = req.id.clone();
+        tokio::spawn(async move {
+            dispatch::handle_chat_send_task(params_owned.as_ref(), &req_id_owned, &app2, &tx2)
+                .await;
+        });
+        return ConnState::Authenticated;
     }
+
+    // All other methods: lock the sink, run inline, send response.
+    let mut guard = tx.lock().await;
+    let res = dispatch::route(&req.method, req.params.as_ref(), &req.id, app, &mut guard).await;
+    let _ = send::json(&mut guard, &res).await;
+
     ConnState::Authenticated
 }

@@ -8,14 +8,20 @@ license.workspace = true
 hooks = ["dep:skynet-hooks"]
 
 [dependencies]
-skynet-core = { path = "../skynet-core" }
-skynet-hooks = { path = "../skynet-hooks", optional = true }
-tokio = { workspace = true }
-reqwest = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-tracing = { workspace = true }
-thiserror = { workspace = true }
-futures-util = { workspace = true }
-async-trait = { workspace = true }
-tokio-stream = { workspace = true }
+skynet-core      = { path = "../skynet-core" }
+skynet-hooks     = { path = "../skynet-hooks", optional = true }
+skynet-memory    = { path = "../skynet-memory" }
+skynet-scheduler = { path = "../skynet-scheduler" }
+skynet-terminal  = { path = "../skynet-terminal" }
+tokio          = { workspace = true }
+reqwest        = { workspace = true }
+serde          = { workspace = true }
+serde_json     = { workspace = true }
+tracing        = { workspace = true }
+thiserror      = { workspace = true }
+futures-util   = { workspace = true }
+async-trait    = { workspace = true }
+tokio-stream   = { workspace = true }
+uuid           = { workspace = true }
+chrono         = { workspace = true }
+toml           = "0.8"

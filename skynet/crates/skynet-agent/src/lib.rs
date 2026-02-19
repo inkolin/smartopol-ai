@@ -2,6 +2,7 @@ pub mod anthropic;
 pub mod anthropic_stream;
 pub mod ollama;
 pub mod openai;
+pub mod pipeline;
 pub mod prompt;
 pub mod provider;
 pub mod router;

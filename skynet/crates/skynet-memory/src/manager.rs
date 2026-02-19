@@ -5,7 +5,9 @@ use rusqlite::Connection;
 use tracing::debug;
 
 use crate::error::MemoryError;
-use crate::types::*;
+use crate::types::{
+    ConversationMessage, KnowledgeEntry, MemoryCategory, MemorySource, UserContext, UserMemory,
+};
 
 /// Maximum rendered context size in characters (~1500 tokens).
 const MAX_CONTEXT_CHARS: usize = 6000;
@@ -243,6 +245,65 @@ impl MemoryManager {
         Ok(())
     }
 
+    /// Count conversation turns stored for a session.
+    pub fn count_turns(&self, session_key: &str) -> Result<i64, MemoryError> {
+        let db = self.db.lock().unwrap();
+        let count: i64 = db.query_row(
+            "SELECT COUNT(*) FROM conversations WHERE session_key = ?1",
+            rusqlite::params![session_key],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// Retrieve the oldest N conversation turns for a session (ascending order).
+    pub fn get_oldest_turns(
+        &self,
+        session_key: &str,
+        limit: usize,
+    ) -> Result<Vec<ConversationMessage>, MemoryError> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare(
+            "SELECT id, user_id, session_key, channel, role, content,
+                    model_used, tokens_in, tokens_out, cost_usd, created_at
+             FROM conversations
+             WHERE session_key = ?1
+             ORDER BY created_at ASC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![session_key, limit], |row| {
+            Ok(ConversationMessage {
+                id: row.get(0)?,
+                user_id: row.get(1)?,
+                session_key: row.get(2)?,
+                channel: row.get(3)?,
+                role: row.get(4)?,
+                content: row.get(5)?,
+                model_used: row.get(6)?,
+                tokens_in: row.get(7)?,
+                tokens_out: row.get(8)?,
+                cost_usd: row.get(9)?,
+                created_at: row.get(10)?,
+            })
+        })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Delete specific conversation turns by their row IDs.
+    /// Returns the number of rows deleted.
+    pub fn delete_turns(&self, ids: &[i64]) -> Result<usize, MemoryError> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let db = self.db.lock().unwrap();
+        let placeholders: String = std::iter::repeat_n("?", ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!("DELETE FROM conversations WHERE id IN ({})", placeholders);
+        let deleted = db.execute(&sql, rusqlite::params_from_iter(ids.iter()))?;
+        Ok(deleted)
+    }
+
     /// Retrieve recent conversation history for a session.
     pub fn get_history(
         &self,
@@ -277,6 +338,177 @@ impl MemoryManager {
         let mut msgs: Vec<_> = rows.filter_map(|r| r.ok()).collect();
         msgs.reverse();
         Ok(msgs)
+    }
+
+    // -----------------------------------------------------------------------
+    // Knowledge base
+    // -----------------------------------------------------------------------
+
+    /// Upsert a knowledge entry. If the topic already exists, update its
+    /// content and tags. FTS5 index is kept in sync manually.
+    pub fn knowledge_write(
+        &self,
+        topic: &str,
+        content: &str,
+        tags: &str,
+    ) -> Result<(), MemoryError> {
+        let db = self.db.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        let existing: Option<(i64, String, String)> = db
+            .query_row(
+                "SELECT id, content, tags FROM knowledge WHERE topic = ?1",
+                rusqlite::params![topic],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .ok();
+
+        match existing {
+            Some((id, old_content, old_tags)) => {
+                db.execute(
+                    "UPDATE knowledge SET content = ?1, tags = ?2, updated_at = ?3 WHERE id = ?4",
+                    rusqlite::params![content, tags, now, id],
+                )?;
+                // Sync FTS: delete old row, insert updated row.
+                db.execute(
+                    "INSERT INTO knowledge_fts(knowledge_fts, rowid, topic, content, tags)
+                     VALUES('delete', ?1, ?2, ?3, ?4)",
+                    rusqlite::params![id, topic, old_content, old_tags],
+                )?;
+                db.execute(
+                    "INSERT INTO knowledge_fts(rowid, topic, content, tags)
+                     VALUES(?1, ?2, ?3, ?4)",
+                    rusqlite::params![id, topic, content, tags],
+                )?;
+            }
+            None => {
+                db.execute(
+                    "INSERT INTO knowledge (topic, content, tags, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?4)",
+                    rusqlite::params![topic, content, tags, now],
+                )?;
+                let id = db.last_insert_rowid();
+                db.execute(
+                    "INSERT INTO knowledge_fts(rowid, topic, content, tags)
+                     VALUES(?1, ?2, ?3, ?4)",
+                    rusqlite::params![id, topic, content, tags],
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Full-text search across knowledge topics, content, and tags.
+    /// Returns up to `limit` entries ordered by FTS5 rank (best match first).
+    pub fn knowledge_search(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<KnowledgeEntry>, MemoryError> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare(
+            "SELECT k.id, k.topic, k.content, k.tags, k.created_at, k.updated_at
+             FROM knowledge k
+             JOIN knowledge_fts f ON k.id = f.rowid
+             WHERE knowledge_fts MATCH ?1
+             ORDER BY rank
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![query, limit], |row| {
+            Ok(KnowledgeEntry {
+                id: row.get(0)?,
+                topic: row.get(1)?,
+                content: row.get(2)?,
+                tags: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool call tracking
+    // -----------------------------------------------------------------------
+
+    /// Log a single tool invocation. Called transparently by the pipeline —
+    /// the AI is unaware. Session key is stored for future per-session analysis.
+    pub fn log_tool_call(&self, tool_name: &str, session_key: &str) -> Result<(), MemoryError> {
+        let db = self.db.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        db.execute(
+            "INSERT INTO tool_calls (tool_name, session_key, called_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params![tool_name, session_key, now],
+        )?;
+        Ok(())
+    }
+
+    /// Return the top `limit` most-called tool names in the last `days` days.
+    pub fn get_top_tools(&self, days: i64, limit: usize) -> Result<Vec<String>, MemoryError> {
+        let db = self.db.lock().unwrap();
+        let cutoff = format!("-{} days", days);
+        let mut stmt = db.prepare(
+            "SELECT tool_name
+             FROM tool_calls
+             WHERE called_at > datetime('now', ?1)
+             GROUP BY tool_name
+             ORDER BY COUNT(*) DESC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![cutoff, limit], |row| row.get(0))?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Return the top `limit` knowledge entries whose tags overlap most with
+    /// `top_tools`. Entries with zero overlap are excluded.
+    /// Used to pre-load hot knowledge into the system prompt automatically.
+    pub fn get_hot_topics(
+        &self,
+        top_tools: &[String],
+        limit: usize,
+    ) -> Result<Vec<KnowledgeEntry>, MemoryError> {
+        if top_tools.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare(
+            "SELECT id, topic, content, tags, created_at, updated_at
+             FROM knowledge
+             WHERE tags != ''",
+        )?;
+        let all: Vec<KnowledgeEntry> = stmt
+            .query_map([], |row| {
+                Ok(KnowledgeEntry {
+                    id: row.get(0)?,
+                    topic: row.get(1)?,
+                    content: row.get(2)?,
+                    tags: row.get(3)?,
+                    created_at: row.get(4)?,
+                    updated_at: row.get(5)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Score each entry by the number of its tags that appear in top_tools.
+        let mut scored: Vec<(usize, KnowledgeEntry)> = all
+            .into_iter()
+            .map(|entry| {
+                let score = entry
+                    .tags
+                    .split(',')
+                    .map(|t| t.trim().to_string())
+                    .filter(|tag| top_tools.contains(tag))
+                    .count();
+                (score, entry)
+            })
+            .filter(|(score, _)| *score > 0)
+            .collect();
+
+        scored.sort_by(|a, b| b.0.cmp(&a.0));
+        Ok(scored.into_iter().take(limit).map(|(_, e)| e).collect())
     }
 
     fn get_cached(&self, user_id: &str) -> Option<UserContext> {

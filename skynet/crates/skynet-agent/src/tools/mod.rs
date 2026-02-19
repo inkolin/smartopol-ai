@@ -3,8 +3,15 @@
 //! Defines the `Tool` trait that all tools implement, plus a registry
 //! for managing available tools and converting them to LLM API format.
 
+pub mod bash_session;
+pub mod build;
+pub mod execute_command;
+pub mod knowledge;
 pub mod list_files;
+pub mod patch_file;
 pub mod read_file;
+pub mod script_tool;
+pub mod reminder;
 pub mod search_files;
 pub mod tool_loop;
 pub mod write_file;

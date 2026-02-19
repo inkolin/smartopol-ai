@@ -1,31 +1,41 @@
 # SmartopolAI
 
-> Intelligent, security-first AI gateway written in Rust. Self-hosted, multi-channel, privacy-first.
+> Autonomous AI gateway written in Rust. Self-hosted, multi-channel, privacy-first.
 
-**Skynet** is the core engine — a high-performance Rust binary that connects AI models to messaging platforms (Telegram, Discord, WhatsApp, Web) with persistent user profiles, cross-channel memory, and role-based permissions.
+**Skynet** is the core engine — a high-performance Rust binary that connects AI models to messaging platforms (Discord, Telegram, Web) with persistent user memory, cross-channel identity, role-based permissions, and a runtime plugin system.
+
+---
 
 ## Why SmartopolAI?
 
-Existing AI gateways (like OpenClaw) have 5 critical limitations:
+Existing AI gateways share the same fundamental limitations:
 
-1. **No persistent user profiles** — context lost between channels and restarts
-2. **Memory is per-agent** — Alice on Telegram ≠ Alice on Discord
-3. **Identity linking is volatile** — lost on gateway restart
-4. **Flat permissions** — only owner vs non-owner
-5. **Static persona** — same behavior for all users and channels
+| Problem | SmartopolAI solution |
+|---------|---------------------|
+| Context lost between channels and restarts | Per-user SQLite memory, persistent |
+| Alice on Telegram ≠ Alice on Discord | Cross-channel identity linking |
+| Flat permissions (owner vs everyone) | Role hierarchy (admin / user / child) |
+| Static persona for all users | Dynamic soul per user, channel, context |
+| Long tool call blocks the channel | Independent `tokio::spawn` per request |
+| All tools loaded into context always | Lazy plugin system — up to 1,000 tools |
 
-SmartopolAI solves all five with a single-binary Rust gateway + SQLite.
+---
 
-| Metric | Traditional (Node.js) | SmartopolAI (Rust) |
-|---|---|---|
-| Docker image | ~450 MB | ~25 MB |
-| RAM (idle) | ~150 MB | ~10 MB |
-| Cold start | ~500ms | <10ms |
-| Deployment | Docker + DB + Redis | Single binary + SQLite |
-| Prompt caching | Not used | 90% input token savings |
-| Model routing | Single model | Intelligent per-task routing |
-| User memory | Per-session, volatile | Per-user, persistent, cross-channel |
-| Permissions | Flat | Role hierarchy (admin/user/child) |
+## Performance
+
+| Metric | OpenClaw (Node.js) | ZeroClaw (Rust) | SmartopolAI (Rust) |
+|--------|-------------------|-----------------|-------------------|
+| Docker image | ~450 MB | ~15 MB | ~25 MB |
+| RAM (idle) | ~150 MB | ~8 MB | ~10 MB |
+| Cold start | ~500 ms | <10 ms | <10 ms |
+| Deployment | Docker + DB + Redis | Single binary | Single binary + SQLite |
+| Prompt caching | Not used | Not used | 90% input token savings |
+| User memory | Per-session, volatile | In-memory | Per-user, persistent |
+| Permissions | Flat | Flat | Role hierarchy |
+| Long tool blocks channel? | No | **Yes** | No |
+| Streaming | No | No | Yes |
+
+---
 
 ## Quick Start
 
@@ -33,89 +43,153 @@ SmartopolAI solves all five with a single-binary Rust gateway + SQLite.
 git clone https://github.com/inkolin/smartopol-ai.git
 cd smartopol-ai/skynet
 
-# Build
-cargo build
+cargo build --release
 
-# Configure
 mkdir -p ~/.skynet
 cp config/default.toml ~/.skynet/skynet.toml
-# Edit skynet.toml — set your auth token and API key
+# Edit skynet.toml — set your Anthropic API key
 
-# Run
 cargo run --bin skynet-gateway
 
 # Verify
 curl http://127.0.0.1:18789/health
 ```
 
+---
+
 ## Architecture
 
 ```
-skynet/                        # Rust workspace
-  crates/
-    skynet-core/               # Shared types, configuration, errors
-    skynet-protocol/           # OpenClaw-compatible wire protocol (v3)
-    skynet-gateway/            # Axum HTTP/WS server (main binary)
-  config/default.toml
-  SOUL.md                      # Agent persona definition
-  docs/                        # Technical documentation
+skynet/crates/
+  skynet-core/        # Shared types, SkynetConfig, errors
+  skynet-protocol/    # OpenClaw-compatible wire protocol v3
+  skynet-gateway/     # Axum HTTP/WS server — port 18789
+  skynet-agent/       # LLM providers, tool loop, plugin loader
+  skynet-users/       # Multi-user auth, UserResolver, RBAC
+  skynet-memory/      # SQLite + FTS5 — user memory + knowledge base
+  skynet-sessions/    # Session management
+  skynet-hooks/       # Event-driven hook engine (12 events)
+  skynet-scheduler/   # Tokio timer + SQLite jobs (cron/interval/once)
+  skynet-channels/    # Channel trait (adapters below)
+  skynet-terminal/    # PTY sessions, oneshot exec, safety checker
+  skynet-discord/     # Discord adapter (serenity)
+
+~/.skynet/
+  skynet.toml         # Configuration
+  skynet.db           # SQLite — memory, sessions, knowledge, tool stats
+  SOUL.md             # Agent identity and behavior rules
+  tools/              # Script plugins (drop folder = new tool)
+    my_plugin/
+      tool.toml
+      run.py
 ```
 
-See [docs/architecture.md](skynet/docs/architecture.md) for the full system design.
+---
 
-## 13 Core Innovations
+## Plugin System
 
-1. **Intelligent Model Routing** — Haiku for trivial, Sonnet for standard, Opus for complex (60-80% cost savings)
-2. **Prompt Caching** — 2-tier cache breakpoints, 90% input token savings
-3. **Dynamic Soul** — adaptive persona per user, channel, and context
-4. **Secure Skill Pipeline** — 6-stage verification: integrity → CVE scan → static analysis → sandbox → binary verify → audit
-5. **Automatic Provider Failover** — health-monitored multi-provider with transparent recovery
-6. **Ollama First-Class** — privacy mode, offline mode, hybrid routing with local models
-7. **SQLite Skill Registry** — indexed, searchable, with usage statistics
-8. **Smart Skill Loading** — 3-tier system: compact index → internal match → on-demand load (~50 tokens vs ~5000)
-9. **Adaptive Service Manager** — auto-detects hardware, recommends optimal config
-10. **Cross-Platform Skills** — OS + arch + RAM awareness, 11 install methods
-11. **Precision Scheduler** — Tokio timer wheel (±1s), guaranteed delivery, crash recovery
-12. **Interactive Terminal** — PTY sessions, SSH, sudo, background jobs
-13. **Webhook Relay** — NAT/CGNAT traversal for 1M+ agents
+SmartopolAI uses a **lazy knowledge + hot-index** model instead of loading everything into context:
 
-## Documentation
+```
+All tool definitions (names + schemas)  →  always in API tools array
+Knowledge content                       →  lazy, FTS5 search on demand
+Hot topics (top 5 by usage)             →  auto pre-loaded, ~25 tokens
+```
 
-- [Architecture](skynet/docs/architecture.md) — system design and technical decisions
-- [Getting Started](skynet/docs/getting-started.md) — build, configure, run
-- [API Reference](skynet/docs/api-reference.md) — HTTP and WebSocket protocol spec
-- [Wiki](../../wiki) — detailed guides, contributing info, roadmap
+**Adding a plugin:**
+
+```
+~/.skynet/tools/weather/
+  tool.toml    ← name, description, params
+  run.py       ← any language: python3, bash, node, ruby...
+```
+
+```toml
+# tool.toml
+name        = "weather"
+description = "Get current weather for any city"
+
+[run]
+command = "python3"
+script  = "run.py"
+
+[[input.params]]
+name     = "city"
+type     = "string"
+required = true
+```
+
+```python
+# run.py
+import os, json
+params = json.loads(os.environ["SKYNET_INPUT"])
+print(f"Weather in {params['city']}: 22°C, sunny")
+```
+
+No restart needed. Drop the folder, the tool is available on the next message.
+
+Or just tell SmartopolAI in chat:
+
+> *"Install this as a SmartopolAI plugin: [GitHub URL or description]"*
+
+It fetches the code, creates the plugin folder, writes `tool.toml` and the entry script, confirms it's active.
+
+---
+
+## Key Capabilities
+
+- **Autonomous agent** — bash, PTY sessions, file read/write/patch, reminders
+- **Persistent knowledge base** — FTS5 SQLite, bot writes and searches its own knowledge
+- **Script plugins** — any language, drop-in, no restart, up to 1,000 tools
+- **Hot knowledge index** — top 5 topics auto-loaded based on actual usage frequency
+- **Tool usage tracking** — transparent call counting drives the hot-index automatically
+- **Prompt caching** — 3-tier system prompt (static / per-user / volatile), 90% cache hit
+- **Runtime model switching** — change LLM model per-request or globally
+- **Streaming responses** — `chat.delta` WebSocket events
+- **Multi-channel** — Discord live, Telegram in progress
+- **Scheduler** — cron, interval, once — proactive reminders delivered to any channel
+- **PTY terminal** — persistent bash sessions, safety-checked command execution
+
+---
 
 ## Roadmap
 
-- [x] **Phase 1** — Gateway skeleton (Axum HTTP/WS, protocol v3, handshake, auth)
-- [ ] **Phase 2** — Agent runtime (LLM providers, prompt builder, streaming chat)
-- [ ] **Phase 3** — Users + Memory (SQLite schema, identity linking, cross-channel context)
-- [ ] **Phase 4** — Channels (Telegram, Discord, WebChat)
-- [ ] **Phase 5** — Advanced (scheduler, skills, model router, prompt caching)
-- [ ] **Phase 6** — Security (audit log, secrets vault, PTY, CLI)
+- [x] **Phase 1** — Gateway skeleton (Axum HTTP/WS, protocol v3, auth)
+- [x] **Phase 2** — Agent runtime (LLM providers, tool loop, streaming)
+- [x] **Phase 3** — Users + Memory (SQLite, FTS5, cross-channel identity)
+- [x] **Phase 4** — Channels (Discord done, Telegram in progress)
+- [x] **Phase 5** — Advanced (scheduler, hooks, terminal, knowledge base, plugins)
+- [ ] **Phase 6** — Security hardening (audit log, secrets vault, plugin sandbox)
+- [ ] **Phase 7** — Web UI
+
+---
+
+## Documentation
+
+- [Getting Started](skynet/docs/getting-started.md)
+- [Architecture](skynet/docs/architecture.md)
+- [Plugin System](skynet/docs/plugins.md)
+- [API Reference](skynet/docs/api-reference.md)
+- [Concurrency Model](skynet/docs/concurrency.md)
+
+---
 
 ## Tech Stack
 
 | Component | Technology |
-|---|---|
+|-----------|-----------|
 | Language | Rust |
-| Async Runtime | Tokio |
-| Web Server | Axum (Tower + Hyper) |
-| Database | SQLite (bundled, WAL mode) |
-| TLS | rustls (pure Rust, no OpenSSL) |
-| AI Primary | Anthropic Claude |
-| AI Local | Ollama |
+| Async runtime | Tokio |
+| Web server | Axum 0.8 (Tower + Hyper) |
+| Database | SQLite (bundled, WAL, FTS5) |
+| AI providers | Anthropic Claude, OpenAI, Ollama |
 | Config | TOML + figment |
+| Discord | serenity 0.12 |
 
-## Contributing
-
-See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for development setup and guidelines.
+---
 
 ## License
 
 MIT — Copyright (c) 2026 Smartopol LLC
 
-## Author
-
-**Nenad Nikolin** — [Smartopol LLC](https://github.com/inkolin)
+**Author:** Nenad Nikolin — [Smartopol LLC](https://github.com/inkolin)

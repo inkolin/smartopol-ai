@@ -101,6 +101,18 @@ pub struct ConversationMessage {
     pub created_at: String,
 }
 
+/// A knowledge base entry — operator or bot-authored fact stored with FTS5 index.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeEntry {
+    pub id: i64,
+    pub topic: String,
+    pub content: String,
+    /// Comma-separated tags for loose categorisation (e.g. "ai,models,anthropic").
+    pub tags: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 /// Rendered user context ready for prompt injection.
 /// Capped at ~1500 tokens. Priority: instruction > preference > fact > context.
 #[derive(Debug, Clone)]

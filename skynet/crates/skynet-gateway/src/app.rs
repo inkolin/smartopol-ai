@@ -22,6 +22,7 @@ use crate::ws::broadcast::EventBroadcaster;
 pub struct AppState {
     pub config: SkynetConfig,
     pub event_seq: AtomicU64,
+    #[allow(dead_code)]
     pub presence_version: AtomicU64,
     pub broadcaster: EventBroadcaster,
     pub agent: AgentRuntime,
@@ -68,9 +69,28 @@ impl AppState {
     }
 }
 
+impl skynet_agent::pipeline::MessageContext for AppState {
+    fn agent(&self) -> &skynet_agent::runtime::AgentRuntime {
+        &self.agent
+    }
+
+    fn memory(&self) -> &skynet_memory::manager::MemoryManager {
+        &self.memory
+    }
+
+    fn terminal(&self) -> &tokio::sync::Mutex<skynet_terminal::manager::TerminalManager> {
+        &self.terminal
+    }
+
+    fn scheduler(&self) -> &skynet_scheduler::SchedulerHandle {
+        &self.scheduler
+    }
+}
+
 /// Assemble the full Axum router.
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
+        .route("/", get(crate::http::ui::ui_handler))
         .route("/health", get(crate::http::health::health_handler))
         .route("/ws", get(crate::ws::connection::ws_handler))
         .route(

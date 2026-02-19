@@ -5,6 +5,9 @@ pub fn init_db(conn: &Connection) -> Result<()> {
     create_user_memory_table(conn)?;
     create_fts_index(conn)?;
     create_conversations_table(conn)?;
+    create_knowledge_table(conn)?;
+    create_knowledge_fts_index(conn)?;
+    create_tool_calls_table(conn)?;
     Ok(())
 }
 
@@ -34,6 +37,44 @@ fn create_fts_index(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE VIRTUAL TABLE IF NOT EXISTS user_memory_fts
             USING fts5(key, value, content='user_memory', content_rowid='id');",
+    )
+}
+
+/// Knowledge base table — operator/bot-authored facts, indexed by FTS5.
+/// Topics are unique slugs (e.g. "claude_models", "discord_setup").
+fn create_knowledge_table(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS knowledge (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            topic       TEXT NOT NULL UNIQUE,
+            content     TEXT NOT NULL,
+            tags        TEXT NOT NULL DEFAULT '',
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        );",
+    )
+}
+
+/// FTS5 virtual table for full-text search across knowledge topics and content.
+fn create_knowledge_fts_index(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts
+            USING fts5(topic, content, tags, content='knowledge', content_rowid='id');",
+    )
+}
+
+/// Tracks every tool invocation — used to derive hot knowledge topics.
+/// The AI is unaware of this; logging happens transparently in the tool loop.
+fn create_tool_calls_table(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS tool_calls (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            tool_name   TEXT NOT NULL,
+            session_key TEXT NOT NULL,
+            called_at   TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_tool_calls_name
+            ON tool_calls(tool_name, called_at DESC);",
     )
 }
 

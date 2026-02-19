@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
 use rusqlite::Connection;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -132,13 +132,18 @@ impl SchedulerHandle {
 /// Core scheduler: persists jobs to SQLite and drives execution at ±1 s precision.
 pub struct SchedulerEngine {
     conn: Connection,
+    /// If set, fired jobs are sent here for delivery routing.
+    fired_tx: Option<mpsc::Sender<Job>>,
 }
 
 impl SchedulerEngine {
     /// Create a new engine, initialising the DB schema if needed.
-    pub fn new(conn: Connection) -> Result<Self> {
+    ///
+    /// Pass `Some(tx)` to receive a copy of every fired [`Job`] via mpsc.
+    /// The sender is non-blocking (`try_send`) so the tick loop is never stalled.
+    pub fn new(conn: Connection, fired_tx: Option<mpsc::Sender<Job>>) -> Result<Self> {
         init_db(&conn)?;
-        Ok(Self { conn })
+        Ok(Self { conn, fired_tx })
     }
 
     /// Add a new job. Returns the fully populated [`Job`] record.
@@ -290,18 +295,21 @@ impl SchedulerEngine {
 
         // Collect eagerly inside the block so `stmt` is dropped before we
         // borrow `self.conn` again for the UPDATE below.
-        let due: Vec<(String, String, u32, Option<u32>)> = {
+        // Columns: id, name, schedule, action, run_count, max_runs
+        let due: Vec<(String, String, String, String, u32, Option<u32>)> = {
             let mut stmt = self.conn.prepare_cached(
-                "SELECT id, schedule, run_count, max_runs FROM jobs
+                "SELECT id, name, schedule, action, run_count, max_runs FROM jobs
                  WHERE status = 'pending' AND next_run IS NOT NULL AND next_run <= ?1",
             )?;
             let rows: Vec<_> = stmt
                 .query_map([&now_str], |row| {
                     Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, u32>(2)?,
-                        row.get::<_, Option<u32>>(3)?,
+                        row.get::<_, String>(0)?,      // id
+                        row.get::<_, String>(1)?,      // name
+                        row.get::<_, String>(2)?,      // schedule JSON
+                        row.get::<_, String>(3)?,      // action JSON
+                        row.get::<_, u32>(4)?,         // run_count
+                        row.get::<_, Option<u32>>(5)?, // max_runs
                     ))
                 })?
                 .filter_map(|r| r.ok())
@@ -309,7 +317,7 @@ impl SchedulerEngine {
             rows
         };
 
-        for (id, sched_json, run_count, max_runs) in due {
+        for (id, name, sched_json, action, run_count, max_runs) in due {
             let schedule: Schedule = match serde_json::from_str(&sched_json) {
                 Ok(s) => s,
                 Err(e) => {
@@ -319,15 +327,21 @@ impl SchedulerEngine {
             };
 
             let new_count = run_count + 1;
-            let exhausted = max_runs.is_some_and(|m| new_count >= m);
-            let next = if exhausted {
+            // next is None when the schedule is exhausted (Once after first fire,
+            // or max_runs reached). In both cases mark the job completed.
+            let next = if max_runs.is_some_and(|m| new_count >= m) {
                 None
             } else {
                 compute_next_run(&schedule, now).map(|dt| dt.to_rfc3339())
             };
-            let new_status = if exhausted { "completed" } else { "pending" };
+            // Completed when there is no future run; pending when there is a next_run.
+            let new_status = if next.is_none() {
+                "completed"
+            } else {
+                "pending"
+            };
 
-            info!(job_id = %id, run = new_count, "executing job");
+            info!(job_id = %id, %name, run = new_count, next_status = %new_status, "executing job");
 
             self.conn.execute(
                 "UPDATE jobs SET status=?1, last_run=?2, next_run=?3,
@@ -335,6 +349,27 @@ impl SchedulerEngine {
                  WHERE id=?5",
                 rusqlite::params![new_status, now_str, next, new_count, id],
             )?;
+
+            // Forward the fired job to the delivery router (non-blocking).
+            if let Some(ref tx) = self.fired_tx {
+                let job = Job {
+                    id: id.clone(),
+                    name: name.clone(),
+                    schedule,
+                    action: action.clone(),
+                    status: JobStatus::Pending,
+                    last_run: Some(now_str.clone()),
+                    next_run: next.clone(),
+                    run_count: new_count,
+                    max_runs,
+                    created_at: String::new(),
+                    updated_at: now_str.clone(),
+                };
+                // try_send never blocks the tick loop; log a warning if the channel is full.
+                if tx.try_send(job).is_err() {
+                    warn!(job_id = %id, "delivery channel full or closed — job dropped");
+                }
+            }
         }
         Ok(())
     }

@@ -12,6 +12,7 @@ members = [
     "crates/skynet-sessions",
     "crates/skynet-scheduler",
     "crates/skynet-terminal",
+    "crates/skynet-discord",
 ]
 
 [workspace.package]
@@ -47,3 +48,9 @@ async-stream = "0.3"
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
+
+# Fix serenity 0.12.5 bug: `since: SystemTime` serialises as a serde struct
+# instead of null/integer — Discord rejects the presence update and shows the
+# bot as offline.  Patched copy lives in /vendor/serenity (since: Option<u64>).
+[patch.crates-io]
+serenity = { path = "../vendor/serenity" }

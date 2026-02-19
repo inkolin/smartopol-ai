@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Skynet</title>
+  <style>
+    :root {
+      --bg:     #1a1a1a;
+      --bg2:    #222222;
+      --bg3:    #2c2c2c;
+      --border: #383838;
+      --text:   #e2e2e2;
+      --muted:  #888888;
+      --accent: #4a9eff;
+      --user:   #1d3a5e;
+      --ai:     #1a2e1a;
+      --err:    #c04040;
+      --ok:     #3db85a;
+      --font:   'Cascadia Code', 'Fira Code', 'Courier New', monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: var(--font); font-size: 14px;
+      display: flex; flex-direction: column;
+    }
+
+    /* ── Header ─────────────────────────────────────── */
+    #header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px; background: var(--bg2);
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    #hdr-title { font-size: 15px; font-weight: 700; letter-spacing: 0.07em; }
+    #model-badge {
+      font-size: 11px; padding: 2px 10px; border-radius: 10px;
+      background: var(--bg3); border: 1px solid var(--border); color: var(--muted);
+      cursor: pointer; user-select: none;
+      transition: color .15s, border-color .15s;
+    }
+    #model-badge:hover { border-color: var(--accent); color: var(--accent); }
+    #ws-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--err); margin-left: auto; flex-shrink: 0;
+      transition: background .3s;
+    }
+    #ws-dot.on { background: var(--ok); }
+
+    /* ── Login overlay ───────────────────────────────── */
+    #login {
+      position: fixed; inset: 0; background: var(--bg);
+      display: flex; align-items: center; justify-content: center; z-index: 50;
+    }
+    #login-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 36px 32px; width: 340px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    #login-card h2 { text-align: center; font-size: 20px; }
+    #login-card p  { color: var(--muted); font-size: 12px; text-align: center; }
+    label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; }
+    input[type=password] {
+      width: 100%; background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); padding: 9px 12px;
+      font-family: var(--font); font-size: 14px; outline: none;
+    }
+    input[type=password]:focus { border-color: var(--accent); }
+    #login-err { color: var(--err); font-size: 12px; text-align: center; display: none; }
+    #connect-btn {
+      background: var(--accent); color: #fff; border: none; border-radius: 6px;
+      padding: 10px; font-family: var(--font); font-size: 14px;
+      font-weight: 600; cursor: pointer; width: 100%;
+    }
+    #connect-btn:hover { opacity: .9; }
+    #connect-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ── Messages ────────────────────────────────────── */
+    #msgs {
+      flex: 1; overflow-y: auto; padding: 16px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .m {
+      max-width: 80%; padding: 10px 14px; border-radius: 8px;
+      line-height: 1.65; word-break: break-word; white-space: pre-wrap;
+    }
+    .m.u { background: var(--user); align-self: flex-end; }
+    .m.a { background: var(--ai);   align-self: flex-start; }
+    .m.s {
+      background: transparent; border: 1px solid var(--border); color: var(--muted);
+      align-self: center; max-width: 90%; font-size: 12px; text-align: center;
+    }
+    .m.e {
+      background: #2a1515; border: 1px solid var(--err);
+      color: var(--err); align-self: flex-start;
+    }
+    .meta { font-size: 11px; color: var(--muted); margin-top: 6px; }
+    .cursor {
+      display: inline-block; width: 7px; height: 14px;
+      background: var(--accent); vertical-align: middle;
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+    strong { font-weight: 700; color: var(--text); }
+    code   { background: var(--bg3); padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+
+    /* ── Tool calls — shown as collapsible details below response text ── */
+    .tool-calls {
+      margin-top: 8px;
+      display: flex; flex-direction: column; gap: 3px;
+      border-top: 1px solid var(--border); padding-top: 6px;
+    }
+    .tool-item {
+      font-size: 12px; border-radius: 4px; overflow: hidden;
+    }
+    .tool-item summary {
+      padding: 3px 6px; cursor: pointer; color: var(--muted);
+      user-select: none; list-style: none;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .tool-item summary::-webkit-details-marker { display: none; }
+    .tool-item summary::marker { display: none; }
+    .tool-item summary:hover { color: var(--text); }
+    .tool-item.running summary { color: var(--accent); }
+    .tool-item.error   summary { color: var(--err); }
+    .tool-item.done    summary { color: var(--muted); }
+    .tool-output {
+      padding: 6px 10px; white-space: pre-wrap; font-size: 11px;
+      color: var(--muted); background: var(--bg3);
+      max-height: 200px; overflow-y: auto; line-height: 1.5;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { display: inline-block; animation: spin 1s linear infinite; }
+
+    /* ── Input bar ───────────────────────────────────── */
+    #hint { font-size: 11px; color: var(--muted); padding: 4px 16px; }
+    #bar {
+      display: flex; gap: 8px; padding: 10px 16px 14px;
+      background: var(--bg2); border-top: 1px solid var(--border); flex-shrink: 0;
+    }
+    #input {
+      flex: 1; background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); padding: 10px 14px;
+      font-family: var(--font); font-size: 14px;
+      resize: none; outline: none; line-height: 1.5;
+      min-height: 44px; max-height: 180px;
+    }
+    #input:focus { border-color: var(--accent); }
+    #send-btn {
+      flex-shrink: 0; width: 72px;
+      background: var(--accent); color: #fff; border: none; border-radius: 6px;
+      font-family: var(--font); font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    #send-btn:hover { opacity: .9; }
+    #send-btn:disabled { opacity: .4; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+<!-- Login overlay -->
+<div id="login">
+  <div id="login-card">
+    <h2>Skynet</h2>
+    <p>Enter your access token to connect</p>
+    <div>
+      <label for="tok">Access Token</label>
+      <input type="password" id="tok" autocomplete="off" spellcheck="false" />
+    </div>
+    <div id="login-err">Invalid token — connection rejected</div>
+    <button id="connect-btn">Connect</button>
+  </div>
+</div>
+
+<!-- Main UI -->
+<div id="header">
+  <span id="hdr-title">SKYNET</span>
+  <span id="model-badge" title="Click to cycle model">···</span>
+  <span id="ws-dot" title="Disconnected"></span>
+</div>
+
+<div id="msgs"></div>
+
+<div id="hint">Enter → send &nbsp;·&nbsp; Shift+Enter → newline &nbsp;·&nbsp; /model [opus|sonnet|haiku]</div>
+<div id="bar">
+  <textarea id="input" rows="1" placeholder="Message Skynet…" disabled></textarea>
+  <button id="send-btn" disabled>Send</button>
+</div>
+
+<script>
+'use strict';
+
+// ── DOM refs ──────────────────────────────────────────────────────────────────
+const $login    = document.getElementById('login');
+const $tok      = document.getElementById('tok');
+const $connBtn  = document.getElementById('connect-btn');
+const $loginErr = document.getElementById('login-err');
+const $msgs     = document.getElementById('msgs');
+const $input    = document.getElementById('input');
+const $sendBtn  = document.getElementById('send-btn');
+const $badge    = document.getElementById('model-badge');
+const $dot      = document.getElementById('ws-dot');
+
+// ── Runtime state ─────────────────────────────────────────────────────────────
+let ws          = null;
+let authed      = false;
+let reconnTimer = null;
+let reconnDelay = 1000;
+
+// inflight: Map<req_id, { resolve, bubbleEl, cursorEl, textNode, toolsEl, toolItems }>
+const inflight  = new Map();
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+const uid = () =>
+  (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2, 18);
+
+const loadTok = ()    => localStorage.getItem('skynet_token') || '';
+const saveTok = (t)   => localStorage.setItem('skynet_token', t);
+const dropTok = ()    => localStorage.removeItem('skynet_token');
+const escHtml = (s)   => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+function setDot(on) {
+  $dot.className = on ? 'on' : '';
+  $dot.title     = on ? 'Connected' : 'Disconnected';
+}
+
+function setModel(m) {
+  if (!m || m === 'gateway') return;
+  const short = m
+    .replace(/^claude-/, '')
+    .replace(/-\d+(\.\d+)?(-\d+)?$/, '')
+    .replace(/-preview(-\d+)?$/, '');
+  $badge.textContent = short;
+}
+
+// ── Minimal markdown: **bold** and `code` ─────────────────────────────────────
+function md(text) {
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+// ── Message bubbles ───────────────────────────────────────────────────────────
+function bubble(cls, content, useHtml) {
+  const d = document.createElement('div');
+  d.className = 'm ' + cls;
+  if (useHtml) d.innerHTML = content;
+  else         d.textContent = content;
+  $msgs.appendChild(d);
+  d.scrollIntoView({ block: 'end' });
+  return d;
+}
+
+// Create a streaming AI bubble.
+// Structure: <div.m.a> <span.text> </span> [tool-calls div added later] <span.cursor> </div>
+function streamBubble() {
+  const d = document.createElement('div');
+  d.className = 'm a';
+  const textSpan = document.createElement('span');
+  d.appendChild(textSpan);
+  const cursor = document.createElement('span');
+  cursor.className = 'cursor';
+  d.appendChild(cursor);
+  $msgs.appendChild(d);
+  d.scrollIntoView({ block: 'end' });
+  return { div: d, textSpan, cursor };
+}
+
+function finalizeBubble(div, cursor, frame) {
+  if (cursor && cursor.parentNode) cursor.parentNode.removeChild(cursor);
+  if (frame.ok && frame.payload) {
+    const u = frame.payload.usage;
+    const m = frame.payload.model;
+    if (u && (u.input_tokens || u.output_tokens)) {
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      const label = (m && m !== 'gateway') ? m : '';
+      meta.textContent = label
+        ? `${label}  ·  in: ${u.input_tokens}  /  out: ${u.output_tokens}`
+        : `in: ${u.input_tokens}  /  out: ${u.output_tokens}`;
+      div.appendChild(meta);
+    }
+  }
+  div.scrollIntoView({ block: 'end' });
+}
+
+// ── Tool call rendering ───────────────────────────────────────────────────────
+function ensureToolsContainer(entry) {
+  if (entry.toolsEl) return entry.toolsEl;
+  const tc = document.createElement('div');
+  tc.className = 'tool-calls';
+  // Insert before the cursor so tools appear below the response text.
+  entry.div.insertBefore(tc, entry.cursor);
+  entry.toolsEl = tc;
+  return tc;
+}
+
+function handleToolEvent(ev) {
+  const { req_id, name, label, status, output, is_error } = ev.payload || {};
+  if (!req_id) return;
+
+  const entry = inflight.get(req_id);
+  if (!entry) return;
+
+  // Ensure the bubble exists.
+  if (!entry.div) {
+    const { div, textSpan, cursor } = streamBubble();
+    entry.div      = div;
+    entry.textSpan = textSpan;
+    entry.cursor   = cursor;
+  }
+
+  const itemKey = label || name;
+  const tc = ensureToolsContainer(entry);
+
+  if (status === 'running') {
+    const details = document.createElement('details');
+    details.className = 'tool-item running';
+    const summary = document.createElement('summary');
+    summary.innerHTML = `<span class="spin">⚙</span>&nbsp;<code>${escHtml(label || name)}</code>`;
+    details.appendChild(summary);
+    tc.appendChild(details);
+    if (!entry.toolItems) entry.toolItems = new Map();
+    entry.toolItems.set(itemKey, { details, summary });
+
+  } else if (status === 'done') {
+    const item = entry.toolItems && entry.toolItems.get(itemKey);
+    if (item) {
+      item.details.classList.remove('running');
+      item.details.classList.add(is_error ? 'error' : 'done');
+      const icon = is_error ? '✗' : '✓';
+      item.summary.innerHTML = `${icon}&nbsp;<code>${escHtml(label || name)}</code>`;
+      if (output) {
+        const pre = document.createElement('pre');
+        pre.className = 'tool-output';
+        pre.textContent = output;
+        item.details.appendChild(pre);
+      }
+    }
+  }
+
+  entry.div.scrollIntoView({ block: 'end' });
+}
+
+// ── WebSocket wire helpers ────────────────────────────────────────────────────
+function wsSend(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+}
+
+function wsReq(method, params) {
+  return new Promise(resolve => {
+    const id = uid();
+    // bubbleEl/cursorEl are set lazily on first chat.delta
+    inflight.set(id, { resolve, div: null, textSpan: null, cursor: null, toolsEl: null, toolItems: null });
+    const f = { type: 'req', id, method };
+    if (params !== undefined) f.params = params;
+    wsSend(f);
+  });
+}
+
+// ── Frame dispatch ────────────────────────────────────────────────────────────
+function onFrame(frame, token) {
+  if (frame.type === 'event') onEvent(frame, token);
+  else if (frame.type === 'res') onRes(frame);
+}
+
+function onEvent(ev, token) {
+  if (ev.event === 'connect.challenge') {
+    wsSend({
+      type: 'req', id: '__init__', method: 'connect',
+      params: {
+        auth: { mode: 'token', token },
+        client_info: { name: 'Skynet Web UI', version: '1.0', platform: 'browser' }
+      }
+    });
+    return;
+  }
+
+  // Tool execution — shown as collapsible badges, NOT in the main text.
+  if (ev.event === 'chat.tool') {
+    handleToolEvent(ev);
+    return;
+  }
+
+  if (ev.event === 'chat.delta') {
+    const reqId = ev.payload && ev.payload.req_id;
+    const text  = (ev.payload && ev.payload.text) || '';
+    if (!reqId || !text) return;
+
+    const entry = inflight.get(reqId);
+    if (!entry) return;
+
+    // Create bubble on first delta if not yet created.
+    if (!entry.div) {
+      const { div, textSpan, cursor } = streamBubble();
+      entry.div      = div;
+      entry.textSpan = textSpan;
+      entry.cursor   = cursor;
+    }
+
+    // Append text to the text span (before any tool-calls div and cursor).
+    entry.textSpan.appendChild(document.createTextNode(text));
+    entry.div.scrollIntoView({ block: 'end' });
+    return;
+  }
+
+  // Heartbeat tick — ignore.
+}
+
+function onRes(frame) {
+  if (frame.id === '__init__') {
+    if (frame.ok) {
+      authed      = true;
+      reconnDelay = 1000;
+      setDot(true);
+      setEnabled(true);
+      $login.style.display = 'none';
+      fetchModel();
+      bubble('s', 'Connected. Type a message or try <code>/model</code>', true);
+    } else {
+      $loginErr.style.display = 'block';
+      dropTok();
+      $connBtn.disabled = false;
+      if (ws) { ws.close(); ws = null; }
+    }
+    return;
+  }
+
+  const entry = inflight.get(frame.id);
+  if (!entry) return;
+  inflight.delete(frame.id);
+
+  if (entry.div) {
+    // Streaming response — finalize the bubble.
+    finalizeBubble(entry.div, entry.cursor, frame);
+    if (frame.payload && frame.payload.model) setModel(frame.payload.model);
+    if (!frame.ok) {
+      bubble('e', (frame.error && frame.error.message) || 'Stream error');
+    }
+  } else if (frame.ok && frame.payload && frame.payload.content) {
+    // Non-streaming / slash command response.
+    const isCmd = frame.payload.stop_reason === 'command';
+    bubble(isCmd ? 's' : 'a', isCmd ? md(frame.payload.content) : frame.payload.content, isCmd);
+    if (frame.payload.model) setModel(frame.payload.model);
+  } else if (!frame.ok) {
+    bubble('e', (frame.error && frame.error.message) || 'Request failed');
+  }
+
+  entry.resolve(frame);
+}
+
+// ── Connection management ─────────────────────────────────────────────────────
+function connect(token) {
+  if (ws) { ws.close(); ws = null; }
+  clearTimeout(reconnTimer);
+
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + '/ws');
+
+  ws.onmessage = function(evt) {
+    try { onFrame(JSON.parse(evt.data), token); } catch(_) {}
+  };
+
+  ws.onclose = function() {
+    setDot(false);
+    if (authed) {
+      authed = false;
+      setEnabled(false);
+      bubble('s', 'Disconnected. Reconnecting\u2026', false);
+      reconnTimer = setTimeout(function() {
+        reconnDelay = Math.min(reconnDelay * 2, 30000);
+        connect(token);
+      }, reconnDelay);
+    }
+  };
+}
+
+// ── Chat ──────────────────────────────────────────────────────────────────────
+function sendMsg() {
+  const text = $input.value.trim();
+  if (!text || !authed) return;
+  $input.value = '';
+  resize();
+  bubble('u', text, false);
+  // Fire and forget — input stays enabled, user can send next message immediately.
+  wsReq('chat.send', { message: text, stream: true });
+  $input.focus();
+}
+
+async function fetchModel() {
+  const res = await wsReq('agent.status');
+  if (res.ok && res.payload && res.payload.agents && res.payload.agents[0]) {
+    setModel(res.payload.agents[0].model);
+  }
+}
+
+// ── Model badge — click cycles through models ─────────────────────────────────
+const MODEL_CYCLE = ['sonnet', 'opus', 'haiku'];
+let mIdx = 0;
+
+$badge.addEventListener('click', async function() {
+  if (!authed) return;
+  mIdx = (mIdx + 1) % MODEL_CYCLE.length;
+  const target = MODEL_CYCLE[mIdx];
+  bubble('u', '/model ' + target, false);
+  await wsReq('chat.send', { message: '/model ' + target, stream: true });
+  await fetchModel();
+});
+
+// ── Input bar ─────────────────────────────────────────────────────────────────
+function setEnabled(on) {
+  $input.disabled   = !on;
+  $sendBtn.disabled = !on;
+}
+
+function resize() {
+  $input.style.height = 'auto';
+  $input.style.height = Math.min($input.scrollHeight, 180) + 'px';
+}
+
+$input.addEventListener('input', resize);
+$input.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+});
+$sendBtn.addEventListener('click', sendMsg);
+
+// ── Login form ────────────────────────────────────────────────────────────────
+function tryConnect() {
+  const t = $tok.value.trim() || loadTok();
+  $connBtn.disabled = true;
+  $loginErr.style.display = 'none';
+  if (t) saveTok(t);
+  connect(t || '');
+}
+
+$connBtn.addEventListener('click', tryConnect);
+$tok.addEventListener('keydown', function(e) { if (e.key === 'Enter') tryConnect(); });
+
+// ── Auto-connect on load if token is saved ────────────────────────────────────
+window.addEventListener('DOMContentLoaded', function() {
+  const t = loadTok();
+  if (t) { $tok.value = t; tryConnect(); }
+});
+</script>
+</body>
+</html>

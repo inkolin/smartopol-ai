@@ -50,11 +50,19 @@ async fn main() -> anyhow::Result<()> {
     let memory = skynet_memory::manager::MemoryManager::new(rusqlite::Connection::open(db_path)?);
     let sessions = skynet_sessions::SessionManager::new(rusqlite::Connection::open(db_path)?);
 
+    // Fired-job channel: SchedulerEngine → DeliveryRouter task
+    let (fired_tx, fired_rx) = tokio::sync::mpsc::channel::<skynet_scheduler::Job>(256);
+    // Discord delivery channel: DeliveryRouter → Discord proactive delivery task
+    let (discord_delivery_tx, discord_delivery_rx) =
+        tokio::sync::mpsc::channel::<skynet_core::reminder::ReminderDelivery>(256);
+
     // scheduler: management handle for AppState + engine for background loop
     let scheduler_handle =
         skynet_scheduler::SchedulerHandle::new(rusqlite::Connection::open(db_path)?)?;
-    let scheduler_engine =
-        skynet_scheduler::SchedulerEngine::new(rusqlite::Connection::open(db_path)?)?;
+    let scheduler_engine = skynet_scheduler::SchedulerEngine::new(
+        rusqlite::Connection::open(db_path)?,
+        Some(fired_tx),
+    )?;
 
     // initialize LLM provider from config
     let provider = build_provider(&config);
@@ -75,6 +83,87 @@ async fn main() -> anyhow::Result<()> {
         terminal,
     ));
     let router = app::build_router(state.clone());
+
+    // Spawn the delivery router: routes fired scheduler jobs to Discord or WS.
+    let state_for_router = Arc::clone(&state);
+    tokio::spawn(async move {
+        use skynet_core::reminder::{ReminderAction, ReminderDelivery};
+        let mut fired_rx = fired_rx;
+        while let Some(job) = fired_rx.recv().await {
+            let action: ReminderAction = match serde_json::from_str(&job.action) {
+                Ok(a) => a,
+                Err(e) => {
+                    tracing::warn!(job_id = %job.id, "delivery router: bad action JSON: {e}");
+                    continue;
+                }
+            };
+            // If a bash_command is stored, execute it now and append its output.
+            let message = if let Some(ref cmd) = action.bash_command {
+                let terminal = state_for_router.terminal.lock().await;
+                match terminal
+                    .exec(cmd, skynet_terminal::ExecOptions::default())
+                    .await
+                {
+                    Ok(result) => {
+                        let output = if !result.stdout.is_empty() {
+                            result.stdout.trim().to_string()
+                        } else {
+                            result.stderr.trim().to_string()
+                        };
+                        if output.is_empty() {
+                            action.message.clone()
+                        } else {
+                            format!("{}\n```\n{}\n```", action.message, output)
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(job_id = %job.id, error = %e, "reminder bash_command exec failed");
+                        format!("{}\n⚠️ Command failed: {e}", action.message)
+                    }
+                }
+            } else {
+                action.message.clone()
+            };
+
+            let delivery = ReminderDelivery {
+                job_id: job.id.clone(),
+                channel_id: action.channel_id,
+                message: message.clone(),
+                image_url: action.image_url.clone(),
+            };
+            match action.channel.as_str() {
+                "discord" => {
+                    if discord_delivery_tx.send(delivery).await.is_err() {
+                        tracing::warn!(job_id = %job.id, "discord delivery channel closed — message dropped");
+                    }
+                }
+                "ws" => {
+                    let payload = serde_json::json!({
+                        "event":   "reminder.fire",
+                        "job_id":  job.id,
+                        "message": message,
+                    })
+                    .to_string();
+                    for entry in state_for_router.ws_clients.iter() {
+                        let _ = entry.value().try_send(payload.clone());
+                    }
+                }
+                other => tracing::warn!(job_id = %job.id, "unknown reminder channel: {other}"),
+            }
+        }
+    });
+
+    // spawn Discord adapter if configured
+    if let Some(ref discord_cfg) = state.config.channels.discord {
+        let adapter = skynet_discord::DiscordAdapter::new(discord_cfg, Arc::clone(&state));
+        tokio::spawn(async move {
+            adapter.run(Some(discord_delivery_rx)).await;
+        });
+        info!("Discord bot started");
+    } else {
+        // Close the receiver so discord_delivery_tx in the router fails gracefully.
+        drop(discord_delivery_rx);
+    }
 
     // spawn scheduler engine loop in background
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
