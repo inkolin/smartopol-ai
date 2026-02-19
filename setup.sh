@@ -62,6 +62,39 @@ prompt_secret() {
     printf -v "$var_name" '%s' "$input"
 }
 
+# get_existing_key — extract the API key from current config for reuse.
+# Returns the key via stdout, empty if not found.
+# Uses python3 because keys may contain +/= which break sed.
+get_existing_key() {
+    [[ -f "$CONFIG_DEST" ]] || return
+    python3 -c "
+import re
+for line in open('$CONFIG_DEST'):
+    m = re.search(r'api_key\s*=\s*\"(.+?)\"', line)
+    if m:
+        print(m.group(1))
+        break
+" 2>/dev/null
+}
+
+# prompt_or_reuse_key VAR_NAME "Label" — asks for key, but offers reuse if one exists.
+prompt_or_reuse_key() {
+    local var_name="$1" label="$2"
+    local existing
+    existing=$(get_existing_key)
+    if [[ -n "$existing" ]]; then
+        local masked="${existing:0:8}...${existing: -4}"
+        echo -e "  Existing key found: ${CYAN}${masked}${RESET}"
+        echo -ne "  Press Enter to reuse, or type ${CYAN}new${RESET} to enter a different key: "
+        local choice; read -r choice
+        if [[ "$choice" != "new" ]]; then
+            printf -v "$var_name" '%s' "$existing"
+            return
+        fi
+    fi
+    prompt_secret "$var_name" "$label"
+}
+
 generate_token() {
     if command -v openssl &>/dev/null; then
         openssl rand -hex 32
@@ -492,7 +525,7 @@ base_url  = \"${custom_url}\""
                 # ── Anthropic (native) ────────────────────────────────────────
                 if [[ "$PROVIDER_NAME" == "anthropic" ]]; then
                     while true; do
-                        prompt_secret api_key "Anthropic API key (sk-ant-...)"
+                        prompt_or_reuse_key api_key "Anthropic API key (sk-ant-...)"
                         if [[ ! "$api_key" =~ ^sk-ant- ]]; then
                             warn "Anthropic keys start with 'sk-ant-'. Try again, or type 'back'."
                             local cmd; read -r cmd
@@ -520,7 +553,7 @@ api_key = \"${api_key}\""
                 # ── OpenAI (native) ───────────────────────────────────────────
                 if [[ "$PROVIDER_NAME" == "openai" ]]; then
                     while true; do
-                        prompt_secret api_key "OpenAI API key (sk-...)"
+                        prompt_or_reuse_key api_key "OpenAI API key (sk-...)"
                         if [[ ! "$api_key" =~ ^sk- ]]; then
                             warn "OpenAI keys start with 'sk-'. Try again, or type 'back'."
                             local cmd; read -r cmd
@@ -556,7 +589,7 @@ api_key = \"${api_key}\""
                     PROVIDER_NAME="$reg_id"
                     AGENT_MODEL="$reg_model"
 
-                    prompt_secret api_key "${reg_name} API key"
+                    prompt_or_reuse_key api_key "${reg_name} API key"
                     if [[ -z "$api_key" ]]; then
                         warn "API key cannot be empty."
                         continue
@@ -1090,25 +1123,56 @@ wizard() {
     # ── Step 1: AI Provider ──────────────────────────────────────────────────
     wizard_provider
 
-    # ── Step 2: Auth Token ───────────────────────────────────────────────────
-    echo -e "${BOLD}Step 2 — Gateway Auth Token${RESET}"
-    local auto_token
-    auto_token=$(generate_token)
-    echo -e "  Press Enter to use auto-generated token: ${CYAN}${auto_token:0:14}...${RESET}"
-    echo
-    prompt AUTH_TOKEN "Token" "$auto_token"
-    success "Auth token set (${#AUTH_TOKEN} characters)"
-    echo
+    # ── Steps 2-4: Reuse existing config if available ────────────────────────
+    # If we already have a token/port from a previous config, skip these steps
+    # silently. The user only cares about provider + model.
+    local existing_token="" existing_port=""
+    if [[ -f "$CONFIG_DEST" ]]; then
+        existing_token=$(grep 'token = ' "$CONFIG_DEST" 2>/dev/null | head -1 | cut -d'"' -f2) || true
+        existing_port=$(grep 'port\s*=' "$CONFIG_DEST" 2>/dev/null | head -1 | tr -cd '0-9') || true
+        DISCORD_TOML=$(python3 -c "
+found=False
+lines=[]
+for line in open('$CONFIG_DEST'):
+    if line.strip().startswith('[channels.discord]'):
+        found=True
+    if found:
+        lines.append(line.rstrip())
+        if line.strip()=='' and len(lines)>1:
+            break
+if found:
+    print('\n'.join(lines))
+" 2>/dev/null) || true
+    fi
 
-    # ── Step 3: Port ─────────────────────────────────────────────────────────
-    echo -e "${BOLD}Step 3 — Gateway Port${RESET}"
-    prompt GATEWAY_PORT "Port" "18789"
-    success "Port: ${BOLD}${GATEWAY_PORT}${RESET}"
-    echo
+    if [[ -n "$existing_token" ]]; then
+        AUTH_TOKEN="$existing_token"
+        GATEWAY_PORT="${existing_port:-18789}"
+    else
+        # ── Step 2: Auth Token ───────────────────────────────────────────────
+        echo -e "${BOLD}Step 2 — Gateway Auth Token${RESET}"
+        local auto_token
+        auto_token=$(generate_token)
+        echo -e "  Press Enter to use auto-generated token: ${CYAN}${auto_token:0:14}...${RESET}"
+        echo
+        prompt AUTH_TOKEN "Token" "$auto_token"
+        success "Auth token set (${#AUTH_TOKEN} characters)"
+        echo
 
-    # ── Step 4: Discord (optional) ───────────────────────────────────────────
-    echo -e "${BOLD}Step 4 — Discord Bot ${CYAN}(optional — press Enter to skip)${RESET}${BOLD}${RESET}"
+        # ── Step 3: Port ─────────────────────────────────────────────────────
+        echo -e "${BOLD}Step 3 — Gateway Port${RESET}"
+        prompt GATEWAY_PORT "Port" "18789"
+        success "Port: ${BOLD}${GATEWAY_PORT}${RESET}"
+        echo
+    fi
+
+    # ── Step 4: Discord (optional) — skip entirely on reconfigure ──────────
+    if [[ -n "$existing_token" ]]; then
+        # Reconfiguring — keep whatever Discord config exists (or none).
+        :
+    else
     local discord_yn=""
+    echo -e "${BOLD}Step 4 — Discord Bot ${CYAN}(optional — press Enter to skip)${RESET}${BOLD}${RESET}"
     echo -ne "  Enable Discord bot? [y/N]: "
     read -r discord_yn
     discord_yn="${discord_yn:-N}"
@@ -1145,6 +1209,7 @@ dm_allowed      = ${dm_allowed_val}"
         echo -e "  ${BOLD}Bot invite URL${RESET} (replace CLIENT_ID with your Application ID):"
         echo -e "  ${CYAN}https://discord.com/api/oauth2/authorize?client_id=CLIENT_ID&permissions=274878000128&scope=bot${RESET}"
         echo -e "  ${YELLOW}Find CLIENT_ID in the 'OAuth2' tab of your Discord application.${RESET}"
+    fi
     fi
     echo
 }
@@ -1187,6 +1252,10 @@ CONFIG
 # ─── 8. Health Check ──────────────────────────────────────────────────────────
 health_check() {
     info "Running health check on port ${GATEWAY_PORT}..."
+
+    # Kill any stale gateway before starting a fresh one for the check.
+    pkill -f "$BINARY_NAME" 2>/dev/null || true
+    sleep 1
 
     "$SKYNET_DIR/$BINARY_NAME" >> "$LOG_FILE" 2>&1 &
     local pid=$!
@@ -1243,13 +1312,24 @@ launch_agent() {
     pkill -f "$BINARY_NAME" 2>/dev/null || true
     sleep 1
 
-    info "Starting SmartopolAI in the background..."
+    info "Starting SmartopolAI..."
     "$SKYNET_DIR/$BINARY_NAME" >> "$LOG_FILE" 2>&1 &
     disown $!
-    success "SmartopolAI running (logs: $LOG_FILE)"
-    echo
-    echo -e "  Connect via WebSocket:"
-    echo -e "  ${CYAN}ws://127.0.0.1:${GATEWAY_PORT}/ws${RESET}"
+
+    # Quick health check — wait up to 5 seconds for the gateway to respond.
+    local i ok=false
+    for i in $(seq 1 5); do
+        if curl -sf "http://127.0.0.1:${GATEWAY_PORT}/health" &>/dev/null; then
+            ok=true; break
+        fi
+        sleep 1
+    done
+
+    if $ok; then
+        success "SmartopolAI running on port ${GATEWAY_PORT}"
+    else
+        warn "Gateway did not respond within 5s — check logs: ${LOG_FILE}"
+    fi
     echo
 }
 
@@ -1551,16 +1631,26 @@ main() {
     build_binary
     create_skynet_dir
 
-    if ! check_existing_config; then
+    local fresh_install=true
+    if check_existing_config; then
+        fresh_install=false
+    else
         wizard
         write_config
     fi
 
-    health_check
-    mark_first_run
-    print_summary
-    launch_agent
-    first_run_greeting
+    if $fresh_install; then
+        # First time — run health check, show summary, test AI connection.
+        health_check
+        mark_first_run
+        print_summary
+        launch_agent
+        first_run_greeting
+    else
+        # Returning user — just restart and go straight to chat.
+        launch_agent
+    fi
+
     repl_chat
 }
 
