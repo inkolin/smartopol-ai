@@ -1938,7 +1938,7 @@ checksum = "e320a6c5ad31d271ad523dcf3ad13e2767ad8b1cb8f047f75a8aeaf8da139da2"
 
 [[package]]
 name = "skynet-agent"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "base64",
@@ -1968,7 +1968,7 @@ dependencies = [
 
 [[package]]
 name = "skynet-channels"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1982,7 +1982,7 @@ dependencies = [
 
 [[package]]
 name = "skynet-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "figment",
@@ -1995,7 +1995,7 @@ dependencies = [
 
 [[package]]
 name = "skynet-discord"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2012,7 +2012,7 @@ dependencies = [
 
 [[package]]
 name = "skynet-gateway"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2050,7 +2050,7 @@ dependencies = [
 
 [[package]]
 name = "skynet-hooks"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2062,7 +2062,7 @@ dependencies = [
 
 [[package]]
 name = "skynet-memory"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "rusqlite",
@@ -2076,7 +2076,7 @@ dependencies = [
 
 [[package]]
 name = "skynet-protocol"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "serde",
@@ -2088,7 +2088,7 @@ dependencies = [
 
 [[package]]
 name = "skynet-scheduler"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "rusqlite",
@@ -2103,7 +2103,7 @@ dependencies = [
 
 [[package]]
 name = "skynet-sessions"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "rusqlite",
@@ -2117,7 +2117,7 @@ dependencies = [
 
 [[package]]
 name = "skynet-terminal"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "libc",
  "portable-pty",
@@ -2133,7 +2133,7 @@ dependencies = [
 
 [[package]]
 name = "skynet-users"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "rusqlite",

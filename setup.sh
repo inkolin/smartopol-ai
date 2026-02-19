@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # ─── Constants ────────────────────────────────────────────────────────────────
-VERSION="0.2.0"
+VERSION="0.2.1"
 MIN_RUST_MINOR=80          # requires rustc 1.80+
 SKYNET_DIR="$HOME/.skynet"
 BINARY_NAME="skynet-gateway"
@@ -1202,27 +1202,34 @@ first_run_greeting() {
     done
 
     # Send automatic first message
+    local ai_ok=false
     if send_chat_message "Hi! I just installed you. Introduce yourself briefly and tell me what you can do."; then
         success "AI connection works — ${PROVIDER_NAME} is responding."
+        ai_ok=true
     else
         warn "Could not reach the AI. You can fix settings later in ${CONFIG_DEST}"
         warn "Or type /setup-model in the terminal to reconfigure."
     fi
     echo
 
-    # ── Offer auto-start on boot ──────────────────────────────────────────────
-    echo -e "${BOLD}  Auto-start SmartopolAI when your computer boots?${RESET}"
-    echo -e "  This installs a background service so SmartopolAI is always ready."
-    echo
-    local autostart_yn=""
-    echo -ne "  Enable auto-start? [Y/n]: "
-    read -r autostart_yn
-    autostart_yn="${autostart_yn:-Y}"
+    # ── Offer auto-start on boot (only when AI works) ─────────────────────────
+    if $ai_ok; then
+        echo -e "${BOLD}  Auto-start SmartopolAI when your computer boots?${RESET}"
+        echo -e "  This installs a background service so SmartopolAI is always ready."
+        echo
+        local autostart_yn=""
+        echo -ne "  Enable auto-start? [Y/n]: "
+        read -r autostart_yn
+        autostart_yn="${autostart_yn:-Y}"
 
-    if [[ "$autostart_yn" =~ ^[Yy] ]]; then
-        install_autostart
+        if [[ "$autostart_yn" =~ ^[Yy] ]]; then
+            install_autostart
+        else
+            info "Skipped. Start manually anytime: ${CYAN}${SKYNET_DIR}/${BINARY_NAME}${RESET}"
+        fi
     else
-        info "Skipped. Start manually anytime: ${CYAN}${SKYNET_DIR}/${BINARY_NAME}${RESET}"
+        warn "Skipping auto-start — fix your AI provider first, then re-run setup."
+        info "Or enable manually later: ${CYAN}skynet-gateway version${RESET} to verify, then re-run setup."
     fi
     echo
 
