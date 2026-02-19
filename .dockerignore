@@ -1,0 +1,42 @@
+# Git
+.git/
+.githooks/
+.github/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# Claude
+.claude/
+
+# Internal docs and planning (not needed for build)
+ideje/
+istrazivanje/
+pitanja/
+taskovi/
+reference/
+wiki/
+
+# Markdown docs (not needed in image)
+*.md
+!skynet/config/*.md
+
+# Compiled artifacts
+skynet/target/
+
+# Secrets and databases
+*.db
+*.db-wal
+*.db-shm
+*.key
+*.pem
+.env
+.env.*
+
+# Installers (not needed in Docker)
+setup.sh
+install.sh

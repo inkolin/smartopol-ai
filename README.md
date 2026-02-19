@@ -37,6 +37,37 @@ Existing AI gateways share the same fundamental limitations:
 
 ---
 
+## SmartopolAI vs OpenClaw — Feature Comparison
+
+| Feature | SmartopolAI | OpenClaw |
+|---------|------------|----------|
+| **LLM providers** | 42+ (7 native + 32 registry) | ~5 |
+| **Memory** | Persistent per-user FTS5 — survives restarts | Volatile per-session |
+| **Prompt caching** | 3-tier (90% savings on Anthropic) | None |
+| **Permissions** | RBAC: admin/user/child hierarchy | Flat: owner vs everyone |
+| **Deployment** | Single binary + SQLite | Docker + Node.js + Redis |
+| **Plugin system** | Any language (Python/Bash/Ruby/...) | Node.js only |
+| **Skills** | SKILL.md instruction documents | AgentSkills (similar) |
+| **Knowledge base** | FTS5 with hot-index auto-injection | None |
+| **Cross-channel identity** | Same user across all channels | Separate per channel |
+| **Scheduler** | Built-in cron/interval/once | External only |
+| **Streaming** | SSE + WebSocket delta events | No |
+| **Binary size** | ~25 MB | ~450 MB Docker image |
+
+---
+
+## Docker
+
+```bash
+./docker-setup.sh
+```
+
+Or manually: `docker compose up -d` (edit `.env` first).
+
+See [Docker Deployment Guide](skynet/docs/docker.md) for full documentation.
+
+---
+
 ## Quick Start
 
 **One-liner install (Linux / macOS):**
@@ -190,10 +221,13 @@ It fetches the code, creates the plugin folder, writes `tool.toml` and the entry
 - [Architecture](skynet/docs/architecture.md)
 - [LLM Providers](skynet/docs/providers.md) (42+ supported)
 - [Plugin System](skynet/docs/plugins.md)
+- [Skills System](skynet/docs/skills.md) (SKILL.md instruction documents)
+- [Knowledge Base](skynet/docs/knowledge-base.md) (FTS5, seed data, hot-index)
 - [API Reference](skynet/docs/api-reference.md)
 - [Concurrency Model](skynet/docs/concurrency.md)
 - [Shared Message Pipeline](skynet/docs/shared-message-pipeline.md)
 - [Scheduled Reminders](skynet/docs/scheduled-reminders.md)
+- [Docker Deployment](skynet/docs/docker.md)
 
 ---
 

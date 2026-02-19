@@ -98,7 +98,7 @@ The goal: clone → one command → running in 5 minutes.
   curl -fsSL https://raw.githubusercontent.com/inkolin/smartopol-ai/main/install.sh | bash
   ```
 - [ ] `setup.ps1` — Windows PowerShell installer (deferred — WSL2 guidance for now)
-- [ ] Docker image + `docker-compose.yml` (planned)
+- [x] Docker image + `docker-compose.yml`
 - [ ] Pre-built binaries via GitHub Releases (planned)
 
 ---
