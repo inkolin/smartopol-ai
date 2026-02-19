@@ -92,6 +92,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(crate::http::ui::ui_handler))
         .route("/health", get(crate::http::health::health_handler))
+        .route("/chat", post(crate::http::chat::chat_handler))
         .route("/ws", get(crate::ws::connection::ws_handler))
         .route(
             "/v1/chat/completions",

@@ -39,6 +39,24 @@ Existing AI gateways share the same fundamental limitations:
 
 ## Quick Start
 
+**One-liner install (Linux / macOS):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/inkolin/smartopol-ai/main/install.sh | bash
+```
+
+The installer clones the repo, builds from source, and walks you through configuration interactively.
+
+**Or clone and run manually:**
+
+```bash
+git clone https://github.com/inkolin/smartopol-ai.git
+cd smartopol-ai
+./setup.sh
+```
+
+**Manual build (no wizard):**
+
 ```bash
 git clone https://github.com/inkolin/smartopol-ai.git
 cd smartopol-ai/skynet
@@ -47,9 +65,9 @@ cargo build --release
 
 mkdir -p ~/.skynet
 cp config/default.toml ~/.skynet/skynet.toml
-# Edit skynet.toml — set your Anthropic API key
+# Edit skynet.toml — set your API key and auth token
 
-cargo run --bin skynet-gateway
+./target/release/skynet-gateway
 
 # Verify
 curl http://127.0.0.1:18789/health

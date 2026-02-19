@@ -1,6 +1,7 @@
 [gateway]
 port = 18789
 bind = "127.0.0.1"
+# soul_path = "/home/youruser/.skynet/SOUL.md"   # default: ~/.skynet/SOUL.md
 
 [gateway.auth]
 mode = "token"
