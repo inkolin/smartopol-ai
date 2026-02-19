@@ -72,7 +72,9 @@ pub async fn process_message_non_streaming<C: MessageContext + 'static>(
         .get_hot_topics(&top_tools, 5)
         .unwrap_or_default();
     if !hot_topics.is_empty() {
-        let mut hot_str = String::from("\n\n## Knowledge index (top topics — use knowledge_search for full details)\n");
+        let mut hot_str = String::from(
+            "\n\n## Knowledge index (top topics — use knowledge_search for full details)\n",
+        );
         for entry in &hot_topics {
             hot_str.push_str(&format!("- {} [{}]\n", entry.topic, entry.tags));
         }
@@ -120,7 +122,8 @@ pub async fn process_message_non_streaming<C: MessageContext + 'static>(
         raw_messages: None,
     };
 
-    let (r, called_tools) = tool_loop::run_tool_loop(ctx.agent().provider(), request, &tools).await?;
+    let (r, called_tools) =
+        tool_loop::run_tool_loop(ctx.agent().provider(), request, &tools).await?;
 
     // Transparently log every tool call for usage frequency tracking.
     for tool_name in &called_tools {

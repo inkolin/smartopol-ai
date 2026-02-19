@@ -116,7 +116,9 @@ impl ScriptTool {
     fn load(dir: &Path) -> Option<Self> {
         let manifest_path = dir.join("tool.toml");
         let content = std::fs::read_to_string(&manifest_path)
-            .map_err(|e| warn!(path = %manifest_path.display(), error = %e, "cannot read tool.toml"))
+            .map_err(
+                |e| warn!(path = %manifest_path.display(), error = %e, "cannot read tool.toml"),
+            )
             .ok()?;
         let manifest: ToolManifest = toml::from_str(&content)
             .map_err(|e| warn!(path = %manifest_path.display(), error = %e, "invalid tool.toml"))
@@ -180,8 +182,7 @@ impl Tool for ScriptTool {
             .current_dir(&self.dir)
             .output();
 
-        let result =
-            tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), run).await;
+        let result = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), run).await;
 
         match result {
             Err(_) => ToolResult::error(format!(
@@ -197,7 +198,11 @@ impl Tool for ScriptTool {
                 let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
 
                 if out.status.success() {
-                    let content = if stdout.is_empty() { "(no output)" } else { &stdout };
+                    let content = if stdout.is_empty() {
+                        "(no output)"
+                    } else {
+                        &stdout
+                    };
                     ToolResult::success(content.to_string())
                 } else {
                     let mut msg = stdout;
@@ -207,10 +212,7 @@ impl Tool for ScriptTool {
                         }
                         msg.push_str(&format!("[stderr]: {}", stderr));
                     }
-                    msg.push_str(&format!(
-                        "\n[exit: {}]",
-                        out.status.code().unwrap_or(-1)
-                    ));
+                    msg.push_str(&format!("\n[exit: {}]", out.status.code().unwrap_or(-1)));
                     ToolResult::error(msg)
                 }
             }
