@@ -4,4 +4,4 @@
 //! `skynet-agent/src/tools/` and are generic over `MessageContext`. This module
 //! is a thin re-export so external consumers keep a stable import path if needed.
 
-pub use skynet_agent::tools::build::{build_tools, tool_definitions};
+pub use skynet_agent::tools::build::{build_tools, tool_definitions, BuiltTools};

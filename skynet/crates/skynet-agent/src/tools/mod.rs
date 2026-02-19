@@ -13,6 +13,7 @@ pub mod read_file;
 pub mod reminder;
 pub mod script_tool;
 pub mod search_files;
+pub mod skill;
 pub mod tool_loop;
 pub mod write_file;
 

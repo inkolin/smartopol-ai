@@ -109,6 +109,8 @@ pub struct KnowledgeEntry {
     pub content: String,
     /// Comma-separated tags for loose categorisation (e.g. "ai,models,anthropic").
     pub tags: String,
+    /// Origin of this entry: "user", "seed", "api", etc.
+    pub source: String,
     pub created_at: String,
     pub updated_at: String,
 }

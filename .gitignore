@@ -24,6 +24,9 @@ taskovi/
 SUMMARY.md
 TASKLIST.md
 
+# Wiki (separate git repo — github.com/inkolin/smartopol-ai.wiki)
+wiki/
+
 # IDE
 .vscode/
 .idea/

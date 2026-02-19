@@ -320,15 +320,18 @@ async fn handle_streaming(
 
     // Build tools once for the entire turn.
     // WS has no single Discord channel_id — reminders are broadcast to all WS clients.
-    let tools = crate::tools::build_tools(Arc::clone(app), channel_name, None);
-    let tool_defs = crate::tools::tool_definitions(&tools);
+    let built = crate::tools::build_tools(Arc::clone(app), channel_name, None);
+    let tool_defs = crate::tools::tool_definitions(&built.tools);
 
     // Acquire the system prompt then immediately release the RwLock so we
     // do not hold it across any await points in the loop below.
-    let system_prompt = {
+    let mut system_prompt = {
         let prompt_builder = app.agent.prompt().await;
         prompt_builder.build_prompt(user_context, None)
     };
+    if !built.skill_index.is_empty() {
+        system_prompt.volatile_tier.push_str(&built.skill_index);
+    }
     let plain = system_prompt.to_plain_text();
 
     let model = match model_override {
@@ -484,7 +487,7 @@ async fn handle_streaming(
             )
             .await;
 
-            let result = match tools.iter().find(|t| t.name() == name) {
+            let result = match built.tools.iter().find(|t| t.name() == name) {
                 Some(tool) => {
                     info!(tool = %name, "executing tool");
                     tool.execute(input).await
@@ -600,13 +603,16 @@ async fn handle_streaming_inline(
     use skynet_agent::provider::ChatRequest;
     use skynet_agent::stream::StreamEvent;
 
-    let tools = crate::tools::build_tools(Arc::clone(app), "ws", None);
-    let tool_defs = crate::tools::tool_definitions(&tools);
+    let built = crate::tools::build_tools(Arc::clone(app), "ws", None);
+    let tool_defs = crate::tools::tool_definitions(&built.tools);
 
-    let system_prompt = {
+    let mut system_prompt = {
         let prompt_builder = app.agent.prompt().await;
         prompt_builder.build_prompt(user_context, None)
     };
+    if !built.skill_index.is_empty() {
+        system_prompt.volatile_tier.push_str(&built.skill_index);
+    }
     let plain = system_prompt.to_plain_text();
 
     let model = match model_override {
@@ -741,7 +747,7 @@ async fn handle_streaming_inline(
             )
             .await;
 
-            let result = match tools.iter().find(|t| t.name() == name) {
+            let result = match built.tools.iter().find(|t| t.name() == name) {
                 Some(tool) => {
                     info!(tool = %name, "executing tool");
                     tool.execute(input).await

@@ -346,11 +346,23 @@ impl MemoryManager {
 
     /// Upsert a knowledge entry. If the topic already exists, update its
     /// content and tags. FTS5 index is kept in sync manually.
+    /// Source defaults to "user".
     pub fn knowledge_write(
         &self,
         topic: &str,
         content: &str,
         tags: &str,
+    ) -> Result<(), MemoryError> {
+        self.knowledge_write_with_source(topic, content, tags, "user")
+    }
+
+    /// Upsert a knowledge entry with an explicit source label.
+    pub fn knowledge_write_with_source(
+        &self,
+        topic: &str,
+        content: &str,
+        tags: &str,
+        source: &str,
     ) -> Result<(), MemoryError> {
         let db = self.db.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
@@ -366,8 +378,8 @@ impl MemoryManager {
         match existing {
             Some((id, old_content, old_tags)) => {
                 db.execute(
-                    "UPDATE knowledge SET content = ?1, tags = ?2, updated_at = ?3 WHERE id = ?4",
-                    rusqlite::params![content, tags, now, id],
+                    "UPDATE knowledge SET content = ?1, tags = ?2, source = ?3, updated_at = ?4 WHERE id = ?5",
+                    rusqlite::params![content, tags, source, now, id],
                 )?;
                 // Sync FTS: delete old row, insert updated row.
                 db.execute(
@@ -383,9 +395,9 @@ impl MemoryManager {
             }
             None => {
                 db.execute(
-                    "INSERT INTO knowledge (topic, content, tags, created_at, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?4)",
-                    rusqlite::params![topic, content, tags, now],
+                    "INSERT INTO knowledge (topic, content, tags, source, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+                    rusqlite::params![topic, content, tags, source, now],
                 )?;
                 let id = db.last_insert_rowid();
                 db.execute(
@@ -408,7 +420,7 @@ impl MemoryManager {
     ) -> Result<Vec<KnowledgeEntry>, MemoryError> {
         let db = self.db.lock().unwrap();
         let mut stmt = db.prepare(
-            "SELECT k.id, k.topic, k.content, k.tags, k.created_at, k.updated_at
+            "SELECT k.id, k.topic, k.content, k.tags, k.source, k.created_at, k.updated_at
              FROM knowledge k
              JOIN knowledge_fts f ON k.id = f.rowid
              WHERE knowledge_fts MATCH ?1
@@ -421,11 +433,116 @@ impl MemoryManager {
                 topic: row.get(1)?,
                 content: row.get(2)?,
                 tags: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
+                source: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
             })
         })?;
         Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// List all knowledge entries — returns (topic, tags, source) tuples.
+    pub fn knowledge_list(&self) -> Result<Vec<(String, String, String)>, MemoryError> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT topic, tags, source FROM knowledge ORDER BY topic")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Delete a knowledge entry by topic. Removes from both the main table
+    /// and the FTS5 index.
+    pub fn knowledge_delete(&self, topic: &str) -> Result<(), MemoryError> {
+        let db = self.db.lock().unwrap();
+        let existing: Option<(i64, String, String)> = db
+            .query_row(
+                "SELECT id, content, tags FROM knowledge WHERE topic = ?1",
+                rusqlite::params![topic],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .ok();
+
+        match existing {
+            Some((id, content, tags)) => {
+                db.execute(
+                    "INSERT INTO knowledge_fts(knowledge_fts, rowid, topic, content, tags)
+                     VALUES('delete', ?1, ?2, ?3, ?4)",
+                    rusqlite::params![id, topic, content, tags],
+                )?;
+                db.execute("DELETE FROM knowledge WHERE id = ?1", rusqlite::params![id])?;
+                Ok(())
+            }
+            None => Err(MemoryError::NotFound {
+                category: "knowledge".to_string(),
+                key: topic.to_string(),
+            }),
+        }
+    }
+
+    /// Load seed knowledge from markdown files in a directory.
+    ///
+    /// Each `*.md` file becomes a knowledge entry:
+    /// - Filename (without extension) = topic
+    /// - Optional first line `tags: foo,bar` sets tags
+    /// - Rest of the file = content
+    /// - Source is set to "seed"
+    ///
+    /// Only inserts if the topic does not already exist (never overwrites).
+    /// Returns the number of entries loaded.
+    pub fn load_seed_knowledge(&self, seed_dir: &std::path::Path) -> Result<usize, MemoryError> {
+        if !seed_dir.is_dir() {
+            return Ok(0);
+        }
+
+        let entries = std::fs::read_dir(seed_dir)
+            .map_err(|e| MemoryError::Internal(format!("failed to read seed dir: {e}")))?;
+
+        let mut count = 0;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+
+            let topic = match path.file_stem().and_then(|s| s.to_str()) {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+
+            // Skip if topic already exists
+            {
+                let db = self.db.lock().unwrap();
+                let exists: bool = db
+                    .query_row(
+                        "SELECT COUNT(*) FROM knowledge WHERE topic = ?1",
+                        rusqlite::params![topic],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map(|c| c > 0)
+                    .unwrap_or(false);
+                if exists {
+                    continue;
+                }
+            }
+
+            let raw = match std::fs::read_to_string(&path) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
+            let (tags, content) = parse_seed_content(&raw);
+            if content.trim().is_empty() {
+                continue;
+            }
+
+            if self
+                .knowledge_write_with_source(&topic, content.trim(), &tags, "seed")
+                .is_ok()
+            {
+                count += 1;
+            }
+        }
+
+        Ok(count)
     }
 
     // -----------------------------------------------------------------------
@@ -474,7 +591,7 @@ impl MemoryManager {
 
         let db = self.db.lock().unwrap();
         let mut stmt = db.prepare(
-            "SELECT id, topic, content, tags, created_at, updated_at
+            "SELECT id, topic, content, tags, source, created_at, updated_at
              FROM knowledge
              WHERE tags != ''",
         )?;
@@ -485,8 +602,9 @@ impl MemoryManager {
                     topic: row.get(1)?,
                     content: row.get(2)?,
                     tags: row.get(3)?,
-                    created_at: row.get(4)?,
-                    updated_at: row.get(5)?,
+                    source: row.get(4)?,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
                 })
             })?
             .filter_map(|r| r.ok())
@@ -561,6 +679,22 @@ fn capitalize(s: &str) -> String {
         None => String::new(),
         Some(f) => f.to_uppercase().to_string() + c.as_str(),
     }
+}
+
+/// Parse seed markdown content: optional `tags: ...` first line, rest = content.
+fn parse_seed_content(raw: &str) -> (String, &str) {
+    if let Some(first_line) = raw.lines().next() {
+        if let Some(tags) = first_line.strip_prefix("tags:") {
+            let content_start = first_line.len() + 1; // skip newline
+            let content = if content_start < raw.len() {
+                &raw[content_start..]
+            } else {
+                ""
+            };
+            return (tags.trim().to_string(), content);
+        }
+    }
+    (String::new(), raw)
 }
 
 fn row_to_memory(row: &rusqlite::Row<'_>) -> rusqlite::Result<UserMemory> {

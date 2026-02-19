@@ -48,6 +48,15 @@ async fn main() -> anyhow::Result<()> {
         std::sync::Mutex::new(rusqlite::Connection::open(db_path)?),
     ));
     let memory = skynet_memory::manager::MemoryManager::new(rusqlite::Connection::open(db_path)?);
+
+    // Load seed knowledge from ~/.skynet/knowledge/ — only inserts new topics.
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let seed_dir = std::path::Path::new(&home).join(".skynet/knowledge");
+    match memory.load_seed_knowledge(&seed_dir) {
+        Ok(n) if n > 0 => info!(count = n, "loaded seed knowledge entries"),
+        _ => {}
+    }
+
     let sessions = skynet_sessions::SessionManager::new(rusqlite::Connection::open(db_path)?);
 
     // Fired-job channel: SchedulerEngine → DeliveryRouter task

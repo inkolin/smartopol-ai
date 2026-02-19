@@ -10,4 +10,7 @@ pub enum MemoryError {
 
     #[error("serialization error: {0}")]
     Serialization(String),
+
+    #[error("internal error: {0}")]
+    Internal(String),
 }

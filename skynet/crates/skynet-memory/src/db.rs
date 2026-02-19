@@ -42,6 +42,7 @@ fn create_fts_index(conn: &Connection) -> Result<()> {
 
 /// Knowledge base table — operator/bot-authored facts, indexed by FTS5.
 /// Topics are unique slugs (e.g. "claude_models", "discord_setup").
+/// The `source` column tracks origin: "user", "seed", "api", etc.
 fn create_knowledge_table(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS knowledge (
@@ -49,10 +50,15 @@ fn create_knowledge_table(conn: &Connection) -> Result<()> {
             topic       TEXT NOT NULL UNIQUE,
             content     TEXT NOT NULL,
             tags        TEXT NOT NULL DEFAULT '',
+            source      TEXT NOT NULL DEFAULT 'user',
             created_at  TEXT NOT NULL,
             updated_at  TEXT NOT NULL
         );",
-    )
+    )?;
+    // Idempotent migration for databases created before the source column existed.
+    let _ =
+        conn.execute_batch("ALTER TABLE knowledge ADD COLUMN source TEXT NOT NULL DEFAULT 'user';");
+    Ok(())
 }
 
 /// FTS5 virtual table for full-text search across knowledge topics and content.

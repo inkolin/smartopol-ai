@@ -56,9 +56,9 @@ pub async fn process_message_non_streaming<C: MessageContext + 'static>(
     model_override: Option<&str>,
     channel_id: Option<u64>,
 ) -> Result<ProcessedMessage, ProviderError> {
-    // Build tools — includes execute_command, bash PTY session, and reminder scheduling.
-    let tools = crate::tools::build::build_tools(Arc::clone(ctx), channel_name, channel_id);
-    let tool_defs = crate::tools::build::tool_definitions(&tools);
+    // Build tools — includes execute_command, bash PTY session, reminder scheduling, skills.
+    let built = crate::tools::build::build_tools(Arc::clone(ctx), channel_name, channel_id);
+    let tool_defs = crate::tools::build::tool_definitions(&built.tools);
 
     // Build system prompt, optionally enriched with user memory context.
     let prompt_builder = ctx.agent().prompt().await;
@@ -79,6 +79,11 @@ pub async fn process_message_non_streaming<C: MessageContext + 'static>(
             hot_str.push_str(&format!("- {} [{}]\n", entry.topic, entry.tags));
         }
         system_prompt.volatile_tier.push_str(&hot_str);
+    }
+
+    // Inject skill index into the volatile tier (if any skills are loaded).
+    if !built.skill_index.is_empty() {
+        system_prompt.volatile_tier.push_str(&built.skill_index);
     }
 
     let plain = system_prompt.to_plain_text();
@@ -123,7 +128,7 @@ pub async fn process_message_non_streaming<C: MessageContext + 'static>(
     };
 
     let (r, called_tools) =
-        tool_loop::run_tool_loop(ctx.agent().provider(), request, &tools).await?;
+        tool_loop::run_tool_loop(ctx.agent().provider(), request, &built.tools).await?;
 
     // Transparently log every tool call for usage frequency tracking.
     for tool_name in &called_tools {

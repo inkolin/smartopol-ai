@@ -1,12 +1,14 @@
-//! Knowledge base tools — search and write operator-curated facts.
+//! Knowledge base tools — search, write, list, and delete operator-curated facts.
 //!
 //! The knowledge base is an FTS5-indexed SQLite table (`knowledge`).
 //! Entries are topic-keyed markdown blobs that the bot can search on demand
 //! instead of baking every fact into the static system prompt.
 //!
-//! Two tools:
+//! Four tools:
 //! - `knowledge_search` — FTS5 query, returns matching entries with full content.
 //! - `knowledge_write`  — upsert an entry; bot uses this to persist new facts.
+//! - `knowledge_list`   — list all topics with tags and source.
+//! - `knowledge_delete` — remove an entry by topic.
 
 use std::sync::Arc;
 
@@ -151,6 +153,110 @@ impl<C: MessageContext + 'static> Tool for KnowledgeWriteTool<C> {
         match self.ctx.memory().knowledge_write(&topic, &content, &tags) {
             Ok(()) => ToolResult::success(format!("Knowledge saved: {}", topic)),
             Err(e) => ToolResult::error(format!("knowledge_write failed: {e}")),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// knowledge_list
+// ---------------------------------------------------------------------------
+
+/// List all knowledge base topics with their tags and source.
+pub struct KnowledgeListTool<C: MessageContext + 'static> {
+    ctx: Arc<C>,
+}
+
+impl<C: MessageContext + 'static> KnowledgeListTool<C> {
+    pub fn new(ctx: Arc<C>) -> Self {
+        Self { ctx }
+    }
+}
+
+#[async_trait]
+impl<C: MessageContext + 'static> Tool for KnowledgeListTool<C> {
+    fn name(&self) -> &str {
+        "knowledge_list"
+    }
+
+    fn description(&self) -> &str {
+        "List all topics in the persistent knowledge base with their tags and source. \
+         Use this to discover what knowledge is available before searching for details."
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {}
+        })
+    }
+
+    async fn execute(&self, _input: serde_json::Value) -> ToolResult {
+        match self.ctx.memory().knowledge_list() {
+            Ok(entries) if entries.is_empty() => {
+                ToolResult::success("No knowledge entries found. Use knowledge_write to add some.")
+            }
+            Ok(entries) => {
+                let mut out = format!("{} knowledge entries:\n\n", entries.len());
+                out.push_str("| Topic | Tags | Source |\n|-------|------|--------|\n");
+                for (topic, tags, source) in &entries {
+                    let tags_display = if tags.is_empty() { "-" } else { tags.as_str() };
+                    out.push_str(&format!("| {} | {} | {} |\n", topic, tags_display, source));
+                }
+                ToolResult::success(out)
+            }
+            Err(e) => ToolResult::error(format!("knowledge_list failed: {e}")),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// knowledge_delete
+// ---------------------------------------------------------------------------
+
+/// Delete a knowledge base entry by topic.
+pub struct KnowledgeDeleteTool<C: MessageContext + 'static> {
+    ctx: Arc<C>,
+}
+
+impl<C: MessageContext + 'static> KnowledgeDeleteTool<C> {
+    pub fn new(ctx: Arc<C>) -> Self {
+        Self { ctx }
+    }
+}
+
+#[async_trait]
+impl<C: MessageContext + 'static> Tool for KnowledgeDeleteTool<C> {
+    fn name(&self) -> &str {
+        "knowledge_delete"
+    }
+
+    fn description(&self) -> &str {
+        "Delete a knowledge base entry by its topic slug. \
+         Use knowledge_list first to see available topics."
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "description": "The topic slug to delete (e.g. 'discord_setup')."
+                }
+            },
+            "required": ["topic"]
+        })
+    }
+
+    async fn execute(&self, input: serde_json::Value) -> ToolResult {
+        let topic = match input.get("topic").and_then(|v| v.as_str()) {
+            Some(t) if !t.trim().is_empty() => t.trim().to_string(),
+            _ => return ToolResult::error("missing required parameter: topic"),
+        };
+
+        match self.ctx.memory().knowledge_delete(&topic) {
+            Ok(()) => ToolResult::success(format!("Knowledge deleted: {}", topic)),
+            Err(e) => ToolResult::error(format!("knowledge_delete failed: {e}")),
         }
     }
 }
