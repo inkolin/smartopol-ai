@@ -75,17 +75,25 @@ Defined in `skynet-agent` (not in any channel crate) to avoid circular deps.
 // skynet-agent/src/pipeline/context.rs
 
 pub trait MessageContext: Send + Sync {
-    fn agent(&self)    -> &AgentRuntime;
-    fn memory(&self)   -> &MemoryManager;
-    fn terminal(&self) -> &tokio::sync::Mutex<TerminalManager>;
+    fn agent(&self)     -> &AgentRuntime;
+    fn memory(&self)    -> &MemoryManager;
+    fn terminal(&self)  -> &tokio::sync::Mutex<TerminalManager>;
+    fn scheduler(&self) -> &SchedulerHandle;
+    fn users(&self)     -> &UserResolver;
+    fn connected_channels(&self) -> Vec<String>;
+    fn send_to_channel(&self, channel: &str, recipient: &str, message: &str)
+        -> Result<(), String>;
 }
 ```
 
-`AppState` in `skynet-gateway` implements it. Every new channel (Telegram, WhatsApp…)
+`AppState` in `skynet-gateway` implements it. Every new channel (Telegram, WhatsApp...)
 implements it too — nothing else needed.
 
-Before this refactor `DiscordAppContext` was defined in `skynet-discord` with the same
-three methods. It is now a type alias:
+The `users()`, `connected_channels()`, and `send_to_channel()` methods were added as
+part of the [Unified Brain](unified-brain.md) feature for cross-channel identity and messaging.
+
+Before the original refactor `DiscordAppContext` was defined in `skynet-discord` with the
+same methods. It is now a type alias:
 
 ```rust
 // skynet-discord/src/context.rs
@@ -110,12 +118,15 @@ pub struct ProcessedMessage {
 }
 
 pub async fn process_message_non_streaming<C: MessageContext + 'static>(
-    ctx:           &Arc<C>,
-    session_key:   &str,
-    channel_name:  &str,
-    content:       &str,
-    user_context:  Option<&str>,   // pre-rendered user memory string (optional)
-    model_override: Option<&str>,  // per-request model override (optional)
+    ctx:             &Arc<C>,
+    session_key:     &str,
+    channel_name:    &str,
+    content:         &str,
+    user_context:    Option<&str>,       // pre-rendered user memory string
+    model_override:  Option<&str>,       // per-request model override
+    cancel_token:    Option<CancellationToken>,  // abort via /stop
+    attachment_blocks: Option<&[serde_json::Value]>,  // image/file content blocks
+    user_id:         Option<&str>,       // Skynet user ID for persistence
 ) -> Result<ProcessedMessage, ProviderError>
 ```
 
@@ -142,13 +153,10 @@ async fn handle_non_streaming(...) -> ResFrame {
 
     match process_message_non_streaming(
         app, session_key, channel_name, message,
-        user_context, model_override,
+        user_context, model_override, Some(cancel), None,
+        user_id.as_deref(),
     ).await {
-        Ok(r) => ResFrame::ok(req_id, json!({
-            "content": r.content, "model": r.model,
-            "usage": { "input_tokens": r.tokens_in, "output_tokens": r.tokens_out },
-            "stop_reason": r.stop_reason,
-        })),
+        Ok(r) => ResFrame::ok(req_id, json!({ ... })),
         Err(e) => ResFrame::err(req_id, "LLM_ERROR", &e.to_string()),
     }
 }
@@ -159,25 +167,33 @@ async fn handle_non_streaming(...) -> ResFrame {
 ```rust
 // skynet-discord/src/handler.rs
 
+let resolved = self.ctx.users().resolve("discord", &discord_uid);
+let skynet_user_id = resolved.user().id.clone();
+let session_key = format!("user:{}:discord:guild_{}", skynet_user_id, guild_id);
+
 let response = process_message_non_streaming(
     &ctx, &session_key, "discord", &content,
-    None,  // no user context yet
-    None,  // no model override
+    user_context.as_deref(), None, None, None,
+    Some(&skynet_user_id),
 ).await?;
 
 send::send_chunked(&http, channel_id, &response.content).await;
-// ↑ Discord-specific 1950-char chunking — stays in discord
 ```
 
-### Future channel (Telegram, WhatsApp, …)
+### Future channel (Telegram, WhatsApp, ...)
 
 ```rust
+let resolved = ctx.users().resolve("telegram", &telegram_uid);
+let user_id = resolved.user().id.clone();
+let session_key = format!("user:{}:telegram:{}", user_id, chat_id);
+
 let result = process_message_non_streaming(
     &ctx, &session_key, "telegram", &content, None, None,
+    None, None, Some(&user_id),
 ).await?;
 
 telegram_api.send_message(chat_id, result.content).await;
-// Zero new pipeline code.
+// Zero new pipeline code. User is automatically resolved and tracked.
 ```
 
 ---
@@ -246,19 +262,18 @@ sent and the output buffer is read until the sentinel appears (max 60 s timeout)
 ```rust
 // skynet-agent/src/tools/build.rs
 
-pub fn build_tools<C: MessageContext + 'static>(ctx: Arc<C>) -> Vec<Box<dyn Tool>> {
-    vec![
-        Box::new(ReadFileTool),
-        Box::new(WriteFileTool),
-        Box::new(ListFilesTool),
-        Box::new(SearchFilesTool),
-        Box::new(ExecuteCommandTool::new(Arc::clone(&ctx))),
-        Box::new(BashSessionTool::new(ctx)),
-    ]
-}
-
-pub fn tool_definitions(tools: &[Box<dyn Tool>]) -> Vec<ToolDefinition> {
-    to_definitions(tools)
+pub fn build_tools<C: MessageContext + 'static>(
+    ctx: Arc<C>,
+    session_key: &str,
+    channel_name: &str,
+    user_id: Option<&str>,
+) -> BuiltTools {
+    // Includes: ReadFile, WriteFile, ListFiles, SearchFiles,
+    //   ExecuteCommand, BashSession, MemorySearch, MemoryLearn,
+    //   KnowledgeSearch, KnowledgeWrite, KnowledgeList, KnowledgeDelete,
+    //   SchedulerCreate, SchedulerList, SchedulerDelete, SkillRead,
+    //   SendMessage, LinkIdentity
+    // Plus skill_index for system prompt injection
 }
 ```
 
@@ -321,4 +336,4 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-All three pass at zero warnings. Test count: 26 across 12 crates.
+All three pass at zero warnings. Test count: 82 across 12 crates.
