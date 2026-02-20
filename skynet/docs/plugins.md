@@ -22,7 +22,7 @@ traditional MCP or tool registries:
   knowledge table         ← topic index with tool tags
 
 System prompt (every message):
-  [SOUL.md — identity, rules]
+  [Workspace files — SOUL.md, IDENTITY.md, AGENTS.md, USER.md, TOOLS.md, MEMORY.md]
   [Top 5 hot topics — auto-selected by usage, ~25 tokens]
   [User memory context]
 ```

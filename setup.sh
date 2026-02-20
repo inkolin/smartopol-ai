@@ -1098,15 +1098,32 @@ build_binary() {
 create_skynet_dir() {
     mkdir -p "$SKYNET_DIR/tools"
 
-    if [[ ! -f "$SOUL_DEST" ]]; then
-        if [[ -f "$SOUL_TEMPLATE" ]]; then
-            cp "$SOUL_TEMPLATE" "$SOUL_DEST"
-            success "SOUL.md installed → $SOUL_DEST"
+    # Copy workspace template files — skip files that already exist (don't overwrite user customizations)
+    local templates_dir="$SCRIPT_DIR/skynet/config/templates"
+    local installed=0
+
+    if [[ -d "$templates_dir" ]]; then
+        for template in "$templates_dir"/*.md; do
+            [[ -f "$template" ]] || continue
+            local basename
+            basename=$(basename "$template")
+            local dest="$SKYNET_DIR/$basename"
+            if [[ ! -f "$dest" ]]; then
+                cp "$template" "$dest"
+                ((installed++))
+            fi
+        done
+        if [[ $installed -gt 0 ]]; then
+            success "Installed ${installed} workspace templates → $SKYNET_DIR/"
         else
-            warn "SOUL template not found at $SOUL_TEMPLATE — skipping"
+            info "All workspace files already exist, leaving unchanged."
         fi
     else
-        info "SOUL.md already exists, leaving unchanged."
+        # Fallback: try legacy single SOUL template
+        if [[ ! -f "$SOUL_DEST" ]] && [[ -f "$SOUL_TEMPLATE" ]]; then
+            cp "$SOUL_TEMPLATE" "$SOUL_DEST"
+            success "SOUL.md installed → $SOUL_DEST"
+        fi
     fi
 
     success "~/.skynet/ directory ready"
@@ -1231,15 +1248,15 @@ ${DISCORD_TOML}"
 [gateway]
 port      = ${GATEWAY_PORT}
 bind      = "127.0.0.1"
-soul_path = "${SOUL_DEST}"
 
 [gateway.auth]
 mode  = "token"
 token = "${AUTH_TOKEN}"
 
 [agent]
-model    = "${AGENT_MODEL}"
-provider = "${PROVIDER_NAME}"
+model         = "${AGENT_MODEL}"
+provider      = "${PROVIDER_NAME}"
+workspace_dir = "${SKYNET_DIR}"
 
 ${PROVIDER_TOML}
 ${discord_block}
@@ -1299,10 +1316,10 @@ print_summary() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
     echo
     echo -e "  ${BOLD}Useful commands:${RESET}"
-    echo -e "  Start:   ${CYAN}$SKYNET_DIR/$BINARY_NAME${RESET}"
+    echo -e "  Chat:    ${CYAN}smartopol hello world${RESET}  (one-shot from anywhere)"
+    echo -e "  REPL:    ${CYAN}smartopol${RESET}              (interactive terminal)"
     echo -e "  Config:  ${CYAN}$CONFIG_DEST${RESET}"
     echo -e "  Logs:    ${CYAN}$LOG_FILE${RESET}"
-    echo -e "  Health:  ${CYAN}curl http://127.0.0.1:${GATEWAY_PORT}/health${RESET}"
     echo
 }
 
@@ -1444,7 +1461,103 @@ first_run_greeting() {
     rm -f "$SKYNET_DIR/.first-run"
 }
 
-# ─── 14. Install auto-start (launchd on macOS, systemd on Linux) ─────────────
+# ─── 14a. Install `smartopol` CLI command ─────────────────────────────────────
+install_cli() {
+    local bin_dir="$HOME/.local/bin"
+    local cli_path="$bin_dir/smartopol"
+    mkdir -p "$bin_dir"
+
+    cat > "$cli_path" <<'CLIMARKER'
+#!/usr/bin/env bash
+# smartopol — talk to your SmartopolAI agent from anywhere
+# Usage: smartopol hello world        (one-shot)
+#        smartopol                     (interactive REPL)
+set -euo pipefail
+
+CONFIG="$HOME/.skynet/skynet.toml"
+
+if [[ ! -f "$CONFIG" ]]; then
+    echo "SmartopolAI is not configured yet. Run setup.sh first." >&2
+    exit 1
+fi
+
+# Read token and port from config
+TOKEN=$(python3 -c "
+import re
+for line in open('$CONFIG'):
+    m = re.search(r'token\s*=\s*\"(.+?)\"', line)
+    if m: print(m.group(1)); break
+" 2>/dev/null)
+
+PORT=$(grep 'port' "$CONFIG" 2>/dev/null | head -1 | tr -cd '0-9')
+PORT="${PORT:-18789}"
+URL="http://127.0.0.1:${PORT}/chat"
+
+if [[ -z "$TOKEN" ]]; then
+    echo "No auth token found in $CONFIG" >&2; exit 1
+fi
+
+send_msg() {
+    local body
+    body=$(python3 -c "import json,sys; print(json.dumps({'message':sys.argv[1]}))" "$1")
+    local raw
+    raw=$(curl -s -m 120 \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $TOKEN" \
+        -d "$body" "$URL" 2>/dev/null)
+    python3 -c "
+import json,sys
+try:
+    d=json.loads(sys.argv[1])
+    print(d.get('reply', d.get('error','No response')))
+except: print(sys.argv[1])
+" "$raw"
+}
+
+if [[ $# -gt 0 ]]; then
+    # One-shot mode
+    send_msg "$*"
+else
+    # Interactive REPL
+    echo "SmartopolAI Terminal  (type /exit to quit)"
+    echo
+    while true; do
+        printf '\033[1mYou:\033[0m '
+        read -r input || break
+        [[ -z "$input" ]] && continue
+        [[ "$input" == "/exit" || "$input" == "exit" ]] && break
+        printf '\033[0;36mSmartopolAI:\033[0m '
+        send_msg "$input"
+        echo
+    done
+fi
+CLIMARKER
+
+    chmod +x "$cli_path"
+
+    # Ensure ~/.local/bin is in PATH
+    if ! echo "$PATH" | grep -q "$bin_dir"; then
+        local shell_rc=""
+        if [[ -f "$HOME/.zshrc" ]]; then
+            shell_rc="$HOME/.zshrc"
+        elif [[ -f "$HOME/.bashrc" ]]; then
+            shell_rc="$HOME/.bashrc"
+        fi
+        if [[ -n "$shell_rc" ]]; then
+            if ! grep -q '.local/bin' "$shell_rc" 2>/dev/null; then
+                echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$shell_rc"
+                info "Added ~/.local/bin to PATH in $(basename "$shell_rc")"
+            fi
+        fi
+        export PATH="$bin_dir:$PATH"
+    fi
+
+    success "CLI installed: ${BOLD}smartopol${RESET}"
+    info "Usage:  ${CYAN}smartopol hello world${RESET}  (one-shot)"
+    info "        ${CYAN}smartopol${RESET}              (interactive)"
+}
+
+# ─── 14b. Install auto-start (launchd on macOS, systemd on Linux) ────────────
 install_autostart() {
     case "$OS" in
         Darwin)
@@ -1638,6 +1751,8 @@ main() {
         wizard
         write_config
     fi
+
+    install_cli
 
     if $fresh_install; then
         # First time — run health check, show summary, test AI connection.

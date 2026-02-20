@@ -41,7 +41,7 @@ cargo build --release
 
 ## Test
 
-Run the full test suite (55 tests across all crates):
+Run the full test suite (72 tests across all crates):
 
 ```bash
 cargo test --workspace
@@ -67,11 +67,14 @@ mode  = "token"
 token = "your-secret-token"
 
 [agent]
-model = "claude-sonnet-4-6"
+model         = "claude-sonnet-4-6"
+workspace_dir = "/home/user/.skynet"   # loads SOUL.md, IDENTITY.md, AGENTS.md, etc.
 
 [providers.anthropic]
 api_key = "sk-ant-api03-..."
 ```
+
+SmartopolAI uses a modular workspace prompt system — 7 `.md` files in `~/.skynet/` that define the agent's identity and behavior. See [Setup Guide](setup-guide.md#workspace-prompt-system) for details.
 
 SmartopolAI supports 42+ providers. See [LLM Providers](providers.md) for configuration examples including Anthropic, OpenAI, Groq, DeepSeek, AWS Bedrock, Google Vertex AI, GitHub Copilot, Qwen, Ollama, and many more.
 

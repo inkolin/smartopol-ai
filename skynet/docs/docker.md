@@ -161,7 +161,7 @@ The named volume `skynet-data` preserves your SQLite database, knowledge base, a
 
 The `skynet-data` named volume stores:
 - `skynet.db` — SQLite database (memory, sessions, knowledge, scheduler jobs)
-- `SOUL.md` — agent personality
+- Workspace prompt files: `SOUL.md`, `IDENTITY.md`, `AGENTS.md`, `USER.md`, `TOOLS.md`, `MEMORY.md`, `BOOTSTRAP.md`
 - `tools/` — installed plugins
 - `skills/` — skill documents
 - `knowledge/` — seed knowledge files

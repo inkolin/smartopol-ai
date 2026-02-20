@@ -2,6 +2,26 @@
 
 All notable changes to the Skynet gateway are documented here.
 
+## [0.3.0] - 2026-02-20
+
+### Added
+- **skynet-agent/prompt**: Modular workspace prompt system — `WorkspaceLoader` reads 7 `.md` files from `~/.skynet/` in fixed order (SOUL → IDENTITY → AGENTS → USER → TOOLS → MEMORY → BOOTSTRAP)
+- **skynet-agent/prompt**: Per-file truncation at 20K chars (70% head / 20% tail / 10% marker), total cap at 100K chars
+- **skynet-agent/prompt**: `PromptBuilder::load()` now accepts `workspace_dir` parameter with 4-level fallback chain: workspace_dir → auto-detect → soul_path → default
+- **skynet-agent/prompt**: `reload_workspace()` method for future file watcher support
+- **skynet-agent/prompt**: BOOTSTRAP.md only loaded when `.first-run` marker exists — enables first-run onboarding ritual
+- **skynet-agent/prompt**: Extra `.md` files in workspace directory loaded alphabetically after known files
+- **skynet-core/config**: `workspace_dir: Option<String>` field on `AgentConfig`
+- **config/templates**: 7 workspace template files (SOUL.md, IDENTITY.md, AGENTS.md, USER.md, TOOLS.md, MEMORY.md, BOOTSTRAP.md)
+
+### Fixed
+- **setup.sh**: `soul_path` was written under `[gateway]` but Rust expects it under `[agent]` — replaced with `workspace_dir` under `[agent]`
+- **setup.sh**: `create_skynet_dir()` now copies all 7 templates from `skynet/config/templates/`, skipping existing files
+
+### Changed
+- **setup.sh**: Config generation now writes `workspace_dir` under `[agent]` instead of `soul_path` under `[gateway]`
+- **skynet-gateway/main.rs**: `PromptBuilder::load()` call updated to pass both `soul_path` and `workspace_dir`
+
 ## [0.2.0] - 2026-02-18
 
 ### Added

@@ -224,9 +224,36 @@ After setup, `~/.skynet/` contains:
   skynet-gateway          # compiled binary
   skynet.toml             # configuration
   skynet.db               # SQLite database (created on first run)
-  SOUL.md                 # agent personality and behavior rules
   tools/                  # script plugins (drop folder)
+  skills/                 # skill instruction documents
+  knowledge/              # seed knowledge files
+
+  # Workspace prompt files (modular, each with one responsibility):
+  SOUL.md                 # personality, values, DNA — "who you are"
+  IDENTITY.md             # name, vibe, emoji — filled during bootstrap
+  AGENTS.md               # operating rules: memory, crash recovery, security
+  USER.md                 # user profile: name, timezone, preferences
+  TOOLS.md                # tool guidance: internet access, self-provisioning
+  MEMORY.md               # agent-maintained long-term notes
+  BOOTSTRAP.md            # first-run onboarding ritual (self-deletes when done)
 ```
+
+### Workspace Prompt System
+
+The modular prompt system loads `.md` files from `~/.skynet/` in a fixed order:
+**SOUL → IDENTITY → AGENTS → USER → TOOLS → MEMORY → (extras alphabetically) → BOOTSTRAP (first run only)**
+
+Each file has a specific purpose and can be edited independently. The agent loads all files into Tier 1 of the 3-tier prompt caching system. Configuration is automatic — if `~/.skynet/SOUL.md` exists, workspace mode activates. Or set `workspace_dir` explicitly in `skynet.toml`:
+
+```toml
+[agent]
+model         = "claude-sonnet-4-6"
+workspace_dir = "/home/user/.skynet"
+```
+
+**Size limits:** 20,000 chars per file, 100,000 chars total. Large files are truncated (70% head / 20% tail).
+
+**BOOTSTRAP.md** is only loaded when `~/.skynet/.first-run` marker exists. During the first conversation, the agent introduces itself, learns the user's name and preferences, updates IDENTITY.md and USER.md, then renames BOOTSTRAP.md to `.done`.
 
 ---
 

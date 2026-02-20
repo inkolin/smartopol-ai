@@ -20,7 +20,7 @@ skynet/
     skynet-terminal/    # PTY sessions, one-shot exec, background jobs, safety checker
 ```
 
-**12 crates total. 55 tests passing.**
+**12 crates total. 72 tests passing.**
 
 ## Crate Descriptions
 
@@ -85,17 +85,43 @@ Skynet implements OpenClaw protocol v3 over WebSocket:
 2. Client sends `REQ connect { auth: { mode, ... } }`
 3. Server sends `RES hello-ok { protocol: 3, features, ... }`
 
+## Modular Workspace Prompt System
+
+SmartopolAI uses a modular prompt system where identity and behavior are defined across 7 separate `.md` files in `~/.skynet/`:
+
+| File | Purpose |
+|------|---------|
+| `SOUL.md` | Personality, values, DNA — "who you are" |
+| `IDENTITY.md` | Name, vibe, emoji — filled during bootstrap |
+| `AGENTS.md` | Operating rules: memory, crash recovery, security |
+| `USER.md` | User profile: name, timezone, preferences |
+| `TOOLS.md` | Tool guidance: internet access, self-provisioning |
+| `MEMORY.md` | Agent-maintained long-term notes |
+| `BOOTSTRAP.md` | First-run onboarding ritual (loaded only when `.first-run` marker exists) |
+
+**Load order:** SOUL → IDENTITY → AGENTS → USER → TOOLS → MEMORY → (extras alphabetically) → BOOTSTRAP
+
+**Size caps:** 20,000 chars per file, 100,000 chars total. Large files are truncated using a 70% head / 20% tail / 10% marker split.
+
+**Fallback chain:**
+1. `workspace_dir` set in config → load all `.md` files from directory
+2. Neither set but `~/.skynet/SOUL.md` exists → auto-detect workspace mode
+3. Only `soul_path` set → single file mode (legacy)
+4. Nothing set → hardcoded default
+
+All workspace files are assembled into Tier 1 of the prompt caching system.
+
 ## Prompt Caching Architecture
 
 Anthropic's prompt caching is applied in three tiers to maximise cache hits:
 
 | Tier | Content | Cache breakpoint |
 |------|---------|-----------------|
-| 1 | System prompt (persona + tool list) | Breakpoint 1 |
-| 2 | Rolling conversation prefix (oldest N turns) | Breakpoint 2 |
-| 3 | Latest user turn | Not cached (dynamic) |
+| 1 | Workspace files (SOUL + IDENTITY + AGENTS + ...) + safety + tool defs | Breakpoint 1 |
+| 2 | Per-user context (memory, permissions) | Breakpoint 2 |
+| 3 | Volatile session info (turn count, timestamp) | Not cached (dynamic) |
 
-Cache breakpoints are set on the last token of each tier boundary. When the system prompt or tool list changes (e.g. on restart), tier-1 is invalidated; tier-2 survives across requests as long as the prefix is stable. In steady-state usage this yields approximately 90% input token savings.
+Cache breakpoints are set on the last token of each tier boundary. When the workspace files or tool list change (e.g. on restart), tier-1 is invalidated; tier-2 survives across requests as long as the user context is stable. In steady-state usage this yields approximately 90% input token savings.
 
 ## Multi-Provider Failover
 

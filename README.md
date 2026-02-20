@@ -126,7 +126,13 @@ skynet/crates/
 ~/.skynet/
   skynet.toml         # Configuration
   skynet.db           # SQLite — memory, sessions, knowledge, tool stats
-  SOUL.md             # Agent identity and behavior rules
+  SOUL.md             # Personality, values, DNA — "who you are"
+  IDENTITY.md         # Name, vibe, emoji — filled during first-run bootstrap
+  AGENTS.md           # Operating rules: memory, crash recovery, security
+  USER.md             # User profile: name, timezone, preferences
+  TOOLS.md            # Tool guidance: internet access, self-provisioning
+  MEMORY.md           # Agent-maintained long-term notes
+  BOOTSTRAP.md        # First-run onboarding ritual (self-deletes when done)
   tools/              # Script plugins (drop folder = new tool)
     my_plugin/
       tool.toml
@@ -192,6 +198,7 @@ It fetches the code, creates the plugin folder, writes `tool.toml` and the entry
 - **Script plugins** — any language, drop-in, no restart, up to 1,000 tools
 - **Hot knowledge index** — top 5 topics auto-loaded based on actual usage frequency
 - **Tool usage tracking** — transparent call counting drives the hot-index automatically
+- **Modular workspace prompts** — 7 files (SOUL, IDENTITY, AGENTS, USER, TOOLS, MEMORY, BOOTSTRAP)
 - **Prompt caching** — 3-tier system prompt (static / per-user / volatile), 90% cache hit
 - **Runtime model switching** — change LLM model per-request or globally
 - **Streaming responses** — `chat.delta` WebSocket events

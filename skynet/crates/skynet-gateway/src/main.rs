@@ -140,7 +140,10 @@ async fn main() -> anyhow::Result<()> {
 
     // initialize LLM provider from config
     let provider = build_provider(&config);
-    let prompt = skynet_agent::prompt::PromptBuilder::load(config.agent.soul_path.as_deref());
+    let prompt = skynet_agent::prompt::PromptBuilder::load(
+        config.agent.soul_path.as_deref(),
+        config.agent.workspace_dir.as_deref(),
+    );
     let agent =
         skynet_agent::runtime::AgentRuntime::new(provider, prompt, config.agent.model.clone());
 

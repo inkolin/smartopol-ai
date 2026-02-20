@@ -63,6 +63,7 @@ impl Default for SkynetConfig {
             agent: AgentConfig {
                 model: "claude-sonnet-4-6".to_string(),
                 soul_path: None,
+                workspace_dir: None,
             },
             providers: ProvidersConfig::default(),
             channels: ChannelsConfig::default(),
@@ -104,6 +105,10 @@ pub struct AgentConfig {
     #[serde(default = "default_model")]
     pub model: String,
     pub soul_path: Option<String>,
+    /// Directory containing workspace .md files (SOUL.md, IDENTITY.md, etc.).
+    /// When set, all .md files are loaded in a defined order to form the system prompt.
+    /// Defaults to `~/.skynet/` when that directory contains a SOUL.md.
+    pub workspace_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

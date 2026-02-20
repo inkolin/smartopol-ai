@@ -243,6 +243,6 @@ Share your own skills at [smartopol-plugins](https://github.com/inkolin/smartopo
 ## Architecture Notes
 
 - Skills are re-scanned on every message (no restart needed after adding a skill)
-- The skill index is injected into the **volatile tier** of the 3-tier prompt system, so it's included in prompt caching but refreshed when skills change
+- The skill index is injected into the **volatile tier** of the 3-tier prompt system (after the workspace files in Tier 1), so it's included in prompt caching but refreshed when skills change
 - Skill bodies are NOT pre-loaded into the prompt — only the compact index is. The AI fetches full instructions on demand via `skill_read`, keeping the prompt lean
 - The `SkillReadTool` holds all loaded `SkillEntry` objects in memory for fast retrieval
