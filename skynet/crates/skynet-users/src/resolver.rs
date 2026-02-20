@@ -134,6 +134,80 @@ impl UserResolver {
         Ok(())
     }
 
+    /// Look up a user by their Skynet user ID (primary key).
+    ///
+    /// Returns None if no user exists with this ID.
+    pub fn get_user(&self, user_id: &str) -> Result<Option<crate::types::User>> {
+        let conn = self.db.lock().unwrap();
+        crate::identity::get_user(&conn, user_id)
+    }
+
+    /// List all identities linked to a Skynet user.
+    ///
+    /// Returns the list of (channel, identifier) pairs for prompt injection.
+    pub fn list_identities(&self, user_id: &str) -> Result<Vec<crate::types::UserIdentity>> {
+        let conn = self.db.lock().unwrap();
+        crate::identity::list_identities_for_user(&conn, user_id)
+    }
+
+    /// Self-service identity linking: merge a source identity into the target user.
+    ///
+    /// Unlike `link_identity()` which requires admin privileges, this is called
+    /// after the verification code flow has been validated. It:
+    /// 1. Moves the source identity to point to `target_user_id`
+    /// 2. Invalidates caches for both the old and new user
+    ///
+    /// The caller is responsible for validating the verification code.
+    pub fn self_link(
+        &self,
+        source_channel: &str,
+        source_identifier: &str,
+        target_user_id: &str,
+    ) -> Result<()> {
+        let conn = self.db.lock().unwrap();
+
+        // Verify the target user exists.
+        let _target = crate::identity::get_user(&conn, target_user_id)?
+            .ok_or_else(|| UserError::NotFound(target_user_id.to_string()))?;
+
+        // Update the identity to point to the target user.
+        let now = chrono::Utc::now().to_rfc3339();
+        let rows = conn.execute(
+            "UPDATE user_identities
+             SET user_id=?3, linked_by=?4, linked_at=?5
+             WHERE channel=?1 AND identifier=?2",
+            rusqlite::params![
+                source_channel,
+                source_identifier,
+                target_user_id,
+                "self_link",
+                now
+            ],
+        )?;
+
+        if rows == 0 {
+            // Identity doesn't exist yet — create it.
+            crate::identity::add_identity(
+                &conn,
+                target_user_id,
+                source_channel,
+                source_identifier,
+            )?;
+        }
+
+        // Invalidate caches for both users.
+        self.invalidate_channel(source_channel, source_identifier);
+        self.invalidate_user(target_user_id);
+
+        info!(
+            channel = source_channel,
+            identifier = source_identifier,
+            target_user_id,
+            "identity self-linked"
+        );
+        Ok(())
+    }
+
     /// Drop all cache entries that belong to `user_id`.
     /// Call this after updating a user's role or capabilities.
     pub fn invalidate_user(&self, user_id: &str) {

@@ -13,6 +13,7 @@ skynet-hooks     = { path = "../skynet-hooks", optional = true }
 skynet-memory    = { path = "../skynet-memory" }
 skynet-scheduler = { path = "../skynet-scheduler" }
 skynet-terminal  = { path = "../skynet-terminal" }
+skynet-users     = { path = "../skynet-users" }
 tokio          = { workspace = true }
 reqwest        = { workspace = true }
 serde          = { workspace = true }

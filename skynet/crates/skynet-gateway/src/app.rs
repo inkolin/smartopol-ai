@@ -5,6 +5,7 @@ use axum::{
 use dashmap::DashMap;
 use skynet_agent::runtime::AgentRuntime;
 use skynet_core::config::SkynetConfig;
+use skynet_core::types::ChannelOutbound;
 use skynet_memory::manager::MemoryManager;
 use skynet_scheduler::SchedulerHandle;
 use skynet_sessions::SessionManager;
@@ -43,6 +44,9 @@ pub struct AppState {
     /// Active pipeline operations: session_key -> CancellationToken.
     /// `/stop` cancels all tokens to abort running tool loops.
     pub active_operations: DashMap<String, CancellationToken>,
+    /// Outbound channel senders for cross-channel messaging.
+    /// Key: channel name (e.g. "discord"), Value: sender for `ChannelOutbound` messages.
+    pub channel_senders: DashMap<String, mpsc::Sender<ChannelOutbound>>,
 }
 
 impl AppState {
@@ -69,6 +73,7 @@ impl AppState {
             ws_clients: DashMap::new(),
             notifications: DashMap::new(),
             active_operations: DashMap::new(),
+            channel_senders: DashMap::new(),
         }
     }
 
@@ -93,6 +98,30 @@ impl skynet_agent::pipeline::MessageContext for AppState {
 
     fn scheduler(&self) -> &skynet_scheduler::SchedulerHandle {
         &self.scheduler
+    }
+
+    fn users(&self) -> &skynet_users::resolver::UserResolver {
+        &self.users
+    }
+
+    fn connected_channels(&self) -> Vec<String> {
+        self.channel_senders
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect()
+    }
+
+    fn send_to_channel(&self, channel: &str, recipient: &str, message: &str) -> Result<(), String> {
+        let sender = self
+            .channel_senders
+            .get(channel)
+            .ok_or_else(|| format!("channel '{}' is not connected", channel))?;
+        sender
+            .try_send(ChannelOutbound {
+                recipient: recipient.to_string(),
+                message: message.to_string(),
+            })
+            .map_err(|e| format!("failed to send to '{}': {}", channel, e))
     }
 }
 

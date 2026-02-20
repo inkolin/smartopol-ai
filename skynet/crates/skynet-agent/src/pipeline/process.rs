@@ -52,6 +52,7 @@ pub struct ProcessedMessage {
 /// - `attachment_blocks` — optional multimodal content blocks (images, files) to append
 ///   to the user turn. When `Some`, the pipeline uses `raw_messages` to pass structured
 ///   content blocks to the LLM instead of plain text messages.
+/// - `user_id` — optional Skynet user ID to persist alongside conversation messages
 #[allow(clippy::too_many_arguments)]
 pub async fn process_message_non_streaming<C: MessageContext + 'static>(
     ctx: &Arc<C>,
@@ -63,6 +64,7 @@ pub async fn process_message_non_streaming<C: MessageContext + 'static>(
     channel_id: Option<u64>,
     cancel: Option<CancellationToken>,
     attachment_blocks: Option<Vec<serde_json::Value>>,
+    user_id: Option<&str>,
 ) -> Result<ProcessedMessage, ProviderError> {
     // Build tools — includes execute_command, bash PTY session, reminder scheduling, skills.
     let built = crate::tools::build::build_tools(
@@ -70,6 +72,7 @@ pub async fn process_message_non_streaming<C: MessageContext + 'static>(
         channel_name,
         channel_id,
         Some(session_key),
+        user_id,
     );
     let tool_defs = crate::tools::build::tool_definitions(&built.tools);
 
@@ -105,6 +108,44 @@ pub async fn process_message_non_streaming<C: MessageContext + 'static>(
     // Inject skill index into the volatile tier (if any skills are loaded).
     if !built.skill_index.is_empty() {
         system_prompt.volatile_tier.push_str(&built.skill_index);
+    }
+
+    // Inject connected channels and current user info into the volatile tier.
+    {
+        let channels = ctx.connected_channels();
+        if !channels.is_empty() {
+            let mut section = String::from("\n\n## Connected channels\n");
+            for ch in &channels {
+                section.push_str(&format!("- {}: online\n", ch));
+            }
+            system_prompt.volatile_tier.push_str(&section);
+        }
+
+        // Add current session and user info.
+        let mut session_section = format!(
+            "\n## Current session\n- Channel: {}\n- Session: {}\n",
+            channel_name, session_key
+        );
+
+        if let Some(uid) = user_id {
+            // Look up user display name and role by Skynet user ID.
+            if let Ok(Some(user)) = ctx.users().get_user(uid) {
+                session_section
+                    .push_str(&format!("- User: {} ({})\n", user.display_name, user.role));
+            }
+            // List linked identities.
+            if let Ok(identities) = ctx.users().list_identities(uid) {
+                if !identities.is_empty() {
+                    session_section.push_str("- Linked identities:");
+                    for ident in &identities {
+                        session_section
+                            .push_str(&format!(" {}:{}", ident.channel, ident.identifier));
+                    }
+                    session_section.push('\n');
+                }
+            }
+        }
+        system_prompt.volatile_tier.push_str(&session_section);
     }
 
     let plain = system_prompt.to_plain_text();
@@ -204,11 +245,12 @@ pub async fn process_message_non_streaming<C: MessageContext + 'static>(
     );
 
     // Persist both turns to SQLite for future history.
+    let uid = user_id.map(|s| s.to_string());
     if !r.content.is_empty() {
         let now = chrono::Utc::now().to_rfc3339();
         let _ = ctx.memory().save_message(&ConversationMessage {
             id: 0,
-            user_id: None,
+            user_id: uid.clone(),
             session_key: session_key.to_string(),
             channel: channel_name.to_string(),
             role: "user".to_string(),
@@ -221,7 +263,7 @@ pub async fn process_message_non_streaming<C: MessageContext + 'static>(
         });
         let _ = ctx.memory().save_message(&ConversationMessage {
             id: 0,
-            user_id: None,
+            user_id: uid,
             session_key: session_key.to_string(),
             channel: channel_name.to_string(),
             role: "assistant".to_string(),

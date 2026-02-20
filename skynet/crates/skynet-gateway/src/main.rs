@@ -258,9 +258,18 @@ async fn main() -> anyhow::Result<()> {
 
     // spawn Discord adapter if configured
     if let Some(ref discord_cfg) = state.config.channels.discord {
+        // Create outbound channel for cross-channel messaging (send_message tool → Discord).
+        let (outbound_tx, outbound_rx) =
+            tokio::sync::mpsc::channel::<skynet_core::types::ChannelOutbound>(256);
+        state
+            .channel_senders
+            .insert("discord".to_string(), outbound_tx);
+
         let adapter = skynet_discord::DiscordAdapter::new(discord_cfg, Arc::clone(&state));
         tokio::spawn(async move {
-            adapter.run(Some(discord_delivery_rx)).await;
+            adapter
+                .run(Some(discord_delivery_rx), Some(outbound_rx))
+                .await;
         });
         info!("Discord bot started");
     } else {

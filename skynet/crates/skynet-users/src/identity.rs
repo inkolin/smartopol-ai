@@ -148,6 +148,33 @@ pub fn find_user_by_identity(
     }
 }
 
+/// Return all identities linked to a given Skynet user.
+///
+/// Used by the pipeline to inject linked-account info into the system prompt
+/// so the AI knows which channels the current user is connected to.
+pub fn list_identities_for_user(conn: &Connection, user_id: &str) -> Result<Vec<UserIdentity>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, user_id, channel, identifier, verified, linked_by, linked_at, created_at
+         FROM user_identities WHERE user_id = ?1
+         ORDER BY created_at ASC",
+    )?;
+    let rows = stmt
+        .query_map(params![user_id], |row| {
+            Ok(UserIdentity {
+                id: row.get(0)?,
+                user_id: row.get(1)?,
+                channel: row.get(2)?,
+                identifier: row.get(3)?,
+                verified: row.get::<_, i32>(4)? != 0,
+                linked_by: row.get(5)?,
+                linked_at: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 // ── private helpers ───────────────────────────────────────────────────────────
 
 const USER_SELECT_SQL: &str =

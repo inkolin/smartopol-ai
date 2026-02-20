@@ -69,9 +69,20 @@ impl<C: DiscordAppContext + 'static> EventHandler for DiscordHandler<C> {
             return;
         }
 
-        // Thread-aware session keys.
+        // Resolve the Discord user to a Skynet user via UserResolver.
+        let discord_uid = msg.author.id.to_string();
+        let skynet_user_id = match self.ctx.users().resolve("discord", &discord_uid) {
+            Ok(resolved) => resolved.user().id.clone(),
+            Err(e) => {
+                warn!(error = %e, discord_uid = %discord_uid, "user resolution failed");
+                // Fall back to raw Discord ID so the message is still processed.
+                discord_uid.clone()
+            }
+        };
+
+        // Thread-aware session keys — now user-centric.
         let (session_key, target_channel) =
-            resolve_session(&ctx, &msg, self.config.auto_thread).await;
+            resolve_session(&ctx, &msg, self.config.auto_thread, &skynet_user_id).await;
 
         let _ = target_channel.broadcast_typing(&ctx.http).await;
 
@@ -103,6 +114,7 @@ impl<C: DiscordAppContext + 'static> EventHandler for DiscordHandler<C> {
                 max_bytes,
                 voice_config,
                 ack,
+                skynet_user_id,
             )
             .await;
         });
@@ -131,16 +143,16 @@ fn strip_mention(s: &str) -> &str {
 
 /// Resolve the session key and target channel for a message.
 ///
-/// Thread messages use `discord:thread_{thread_id}:{user_id}`.
-/// When `auto_thread` is enabled and we are NOT already in a thread,
-/// a new thread is created from the message.
+/// Session keys are now user-centric:
+/// - Thread: `user:{skynet_uid}:discord:thread_{thread_id}`
+/// - Guild:  `user:{skynet_uid}:discord:guild_{guild_id}`
+/// - DM:     `user:{skynet_uid}:discord:dm`
 async fn resolve_session(
     ctx: &Context,
     msg: &Message,
     auto_thread: bool,
+    skynet_user_id: &str,
 ) -> (String, serenity::model::id::ChannelId) {
-    let user_id = msg.author.id;
-
     // Check if the current channel is a thread via the guild cache.
     let is_thread = msg
         .guild_id
@@ -155,7 +167,7 @@ async fn resolve_session(
         .unwrap_or(false);
 
     if is_thread {
-        let key = format!("discord:thread_{}:{}", msg.channel_id, user_id);
+        let key = format!("user:{}:discord:thread_{}", skynet_user_id, msg.channel_id);
         return (key, msg.channel_id);
     }
 
@@ -178,7 +190,7 @@ async fn resolve_session(
             .await
         {
             Ok(thread) => {
-                let key = format!("discord:thread_{}:{}", thread.id, user_id);
+                let key = format!("user:{}:discord:thread_{}", skynet_user_id, thread.id);
                 return (key, thread.id);
             }
             Err(e) => {
@@ -189,8 +201,8 @@ async fn resolve_session(
 
     // Default: guild or DM session key.
     let key = match msg.guild_id {
-        Some(gid) => format!("discord:guild_{}:{}", gid, user_id),
-        None => format!("discord:dm:{}", user_id),
+        Some(gid) => format!("user:{}:discord:guild_{}", skynet_user_id, gid),
+        None => format!("user:{}:discord:dm", skynet_user_id),
     };
     (key, msg.channel_id)
 }
@@ -207,6 +219,7 @@ async fn process_message<C: DiscordAppContext + 'static>(
     max_attachment_bytes: u64,
     voice_config: String,
     mut ack: AckHandle,
+    skynet_user_id: String,
 ) {
     use skynet_agent::pipeline::process_message_non_streaming;
 
@@ -275,6 +288,7 @@ async fn process_message<C: DiscordAppContext + 'static>(
         Some(channel_id.get()),
         None,
         attachment_blocks,
+        Some(&skynet_user_id),
     )
     .await
     {

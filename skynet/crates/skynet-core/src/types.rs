@@ -123,6 +123,18 @@ impl fmt::Display for ConnId {
     }
 }
 
+/// Outbound message payload for cross-channel delivery.
+///
+/// Sent through `channel_senders` in `AppState` and consumed by
+/// channel-specific delivery tasks (e.g. Discord HTTP sender).
+#[derive(Debug, Clone)]
+pub struct ChannelOutbound {
+    /// Channel-specific target: Discord channel ID, session key, etc.
+    pub recipient: String,
+    /// Text content to deliver.
+    pub message: String,
+}
+
 /// User role hierarchy: admin > user > child.
 ///
 /// Controls which permissions are available without a DB lookup.

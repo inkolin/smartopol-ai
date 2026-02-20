@@ -12,7 +12,9 @@ use super::execute_command::ExecuteCommandTool;
 use super::knowledge::{
     KnowledgeDeleteTool, KnowledgeListTool, KnowledgeSearchTool, KnowledgeWriteTool,
 };
+use super::link_identity::LinkIdentityTool;
 use super::reminder::ReminderTool;
+use super::send_message::SendMessageTool;
 use super::skill;
 use super::{to_definitions, Tool};
 
@@ -32,15 +34,19 @@ pub struct BuiltTools {
 /// - `bash` (persistent PTY bash session via TerminalManager)
 /// - `reminder` (schedule proactive reminders via the scheduler)
 /// - `knowledge_search`, `knowledge_write`, `knowledge_list`, `knowledge_delete`
+/// - `send_message` (cross-channel messaging)
+/// - `link_identity` (self-service identity linking)
 /// - `skill_read` (if skills are loaded)
 ///
 /// `channel_name`, `channel_id`, and `session_key` are forwarded to `ReminderTool`
 /// so it can embed the correct delivery target in the persisted job action.
+/// `user_id` is passed to `LinkIdentityTool` for self-service identity linking.
 pub fn build_tools<C: MessageContext + 'static>(
     ctx: Arc<C>,
     channel_name: &str,
     channel_id: Option<u64>,
     session_key: Option<&str>,
+    user_id: Option<&str>,
 ) -> BuiltTools {
     let mut tools: Vec<Box<dyn Tool>> = vec![
         Box::new(super::read_file::ReadFileTool),
@@ -60,6 +66,11 @@ pub fn build_tools<C: MessageContext + 'static>(
         Box::new(KnowledgeListTool::new(Arc::clone(&ctx))),
         Box::new(KnowledgeDeleteTool::new(Arc::clone(&ctx))),
         Box::new(super::patch_file::PatchFileTool),
+        Box::new(SendMessageTool::new(Arc::clone(&ctx))),
+        Box::new(LinkIdentityTool::new(
+            Arc::clone(&ctx),
+            user_id.map(|s| s.to_string()),
+        )),
     ];
 
     // Load script plugins from ~/.skynet/tools/ — no restart needed after adding a plugin,

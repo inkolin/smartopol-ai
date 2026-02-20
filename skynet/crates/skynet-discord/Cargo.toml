@@ -8,6 +8,7 @@ license.workspace = true
 skynet-core  = { path = "../skynet-core" }
 skynet-agent = { path = "../skynet-agent" }
 skynet-memory = { path = "../skynet-memory" }
+skynet-users = { path = "../skynet-users" }
 
 serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "rustls_backend", "model", "cache"] }
 tokio       = { workspace = true }

@@ -182,21 +182,26 @@ async fn handle_chat_send(
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty());
 
-    // Resolve user memory context (None = anonymous / no context).
+    // Resolve user identity and memory context.
     let channel = params
         .and_then(|p| p.get("channel"))
         .and_then(|v| v.as_str());
     let sender_id = params
         .and_then(|p| p.get("sender_id"))
         .and_then(|v| v.as_str());
-    let user_context = resolve_user_context(app, channel, sender_id);
+    let (user_context, skynet_user_id) = resolve_user_context(app, channel, sender_id);
 
-    // Derive session key: "channel:sender_id" for channel messages, "web:default" for web UI.
-    let session_key = match (channel, sender_id) {
-        (Some(ch), Some(sid)) => format!("{}:{}", ch, sid),
-        _ => "web:default".to_string(),
+    // Derive session key: user-centric when resolved, fallback to "web:default".
+    let (session_key, channel_name) = match (&skynet_user_id, channel) {
+        (Some(uid), Some(ch)) => {
+            let key = format!("user:{}:{}:{}", uid, ch, sender_id.unwrap_or("default"));
+            (key, ch.to_string())
+        }
+        _ => (
+            "web:default".to_string(),
+            channel.unwrap_or("web").to_string(),
+        ),
     };
-    let channel_name = channel.unwrap_or("web").to_string();
 
     info!(
         method = "chat.send",
@@ -217,6 +222,7 @@ async fn handle_chat_send(
             model_override,
             &session_key,
             &channel_name,
+            skynet_user_id.as_deref(),
         )
         .await
     } else {
@@ -228,6 +234,7 @@ async fn handle_chat_send(
             model_override,
             &session_key,
             &channel_name,
+            skynet_user_id.as_deref(),
         )
         .await
     }
@@ -269,7 +276,7 @@ async fn handle_chat_send_inline(
     let sender_id = params
         .and_then(|p| p.get("sender_id"))
         .and_then(|v| v.as_str());
-    let user_context = resolve_user_context(app, channel, sender_id);
+    let (user_context, _skynet_user_id) = resolve_user_context(app, channel, sender_id);
 
     handle_streaming_inline(
         message,
@@ -283,30 +290,34 @@ async fn handle_chat_send_inline(
 }
 
 /// Resolve a user identity and build their memory context for prompt injection.
-/// Returns `None` if resolution fails or user has no stored memories.
+///
+/// Returns `(user_context, skynet_user_id)`:
+/// - `user_context` — rendered memory string, or None if resolution fails
+/// - `skynet_user_id` — the resolved Skynet user ID, or None
 fn resolve_user_context(
     app: &AppState,
     channel: Option<&str>,
     sender_id: Option<&str>,
-) -> Option<String> {
+) -> (Option<String>, Option<String>) {
     let (channel, sender_id) = match (channel, sender_id) {
         (Some(c), Some(s)) => (c, s),
-        _ => return None,
+        _ => return (None, None),
     };
 
     let resolved = match app.users.resolve(channel, sender_id) {
         Ok(r) => r,
         Err(e) => {
             warn!(error = %e, channel, sender_id, "user resolution failed");
-            return None;
+            return (None, None);
         }
     };
 
     let user_id = resolved.user().id.clone();
-    match app.memory.build_user_context(&user_id) {
+    let user_context = match app.memory.build_user_context(&user_id) {
         Ok(ctx) if !ctx.rendered.is_empty() => Some(ctx.rendered),
         _ => None,
-    }
+    };
+    (user_context, Some(user_id))
 }
 
 /// Streaming path (shared sink) — pushes `chat.delta` EVENT frames, returns final RES.
@@ -323,6 +334,7 @@ async fn handle_streaming(
     model_override: Option<&str>,
     session_key: &str,
     channel_name: &str,
+    user_id: Option<&str>,
 ) -> ResFrame {
     use skynet_agent::provider::ChatRequest;
     use skynet_agent::stream::StreamEvent;
@@ -330,7 +342,13 @@ async fn handle_streaming(
 
     // Build tools once for the entire turn.
     // WS has no single Discord channel_id — reminders are broadcast to all WS clients.
-    let built = crate::tools::build_tools(Arc::clone(app), channel_name, None, Some(session_key));
+    let built = crate::tools::build_tools(
+        Arc::clone(app),
+        channel_name,
+        None,
+        Some(session_key),
+        user_id,
+    );
     let tool_defs = crate::tools::tool_definitions(&built.tools);
 
     // Acquire the system prompt then immediately release the RwLock so we
@@ -594,11 +612,12 @@ async fn handle_streaming(
     );
 
     // Persist this turn to SQLite so future messages have conversation history.
+    let uid = user_id.map(|s| s.to_string());
     if !accumulated.is_empty() {
         let now = chrono::Utc::now().to_rfc3339();
         let _ = app.memory.save_message(&ConversationMessage {
             id: 0,
-            user_id: None,
+            user_id: uid.clone(),
             session_key: session_key.to_string(),
             channel: channel_name.to_string(),
             role: "user".to_string(),
@@ -611,7 +630,7 @@ async fn handle_streaming(
         });
         let _ = app.memory.save_message(&ConversationMessage {
             id: 0,
-            user_id: None,
+            user_id: uid,
             session_key: session_key.to_string(),
             channel: channel_name.to_string(),
             role: "assistant".to_string(),
@@ -659,7 +678,7 @@ async fn handle_streaming_inline(
     use skynet_agent::provider::ChatRequest;
     use skynet_agent::stream::StreamEvent;
 
-    let built = crate::tools::build_tools(Arc::clone(app), "ws", None, None);
+    let built = crate::tools::build_tools(Arc::clone(app), "ws", None, None, None);
     let tool_defs = crate::tools::tool_definitions(&built.tools);
 
     let mut system_prompt = {
@@ -869,6 +888,7 @@ async fn handle_streaming_inline(
 /// All pipeline logic (history load, prompt build, tool loop, memory save,
 /// session compact) lives in `skynet_agent::pipeline::process_message_non_streaming`.
 /// This function only adds the gateway-specific WS frame formatting.
+#[allow(clippy::too_many_arguments)]
 async fn handle_non_streaming(
     message: &str,
     req_id: &str,
@@ -877,6 +897,7 @@ async fn handle_non_streaming(
     model_override: Option<&str>,
     session_key: &str,
     channel_name: &str,
+    user_id: Option<&str>,
 ) -> ResFrame {
     use skynet_agent::pipeline::process_message_non_streaming;
     use skynet_agent::provider::ProviderError;
@@ -895,6 +916,7 @@ async fn handle_non_streaming(
         None, // WS: no Discord channel_id; reminder delivery is broadcast to ws_clients
         Some(cancel),
         None, // no attachment blocks
+        user_id,
     )
     .await;
 

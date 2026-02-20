@@ -77,6 +77,29 @@ pub async fn handle_interaction<C: DiscordAppContext + 'static>(
     }
 }
 
+/// Resolve a Discord user to a Skynet user ID via UserResolver.
+/// Falls back to the raw Discord ID on error.
+fn resolve_skynet_user_id<C: DiscordAppContext + 'static>(
+    app: &Arc<C>,
+    discord_uid: &str,
+) -> String {
+    match app.users().resolve("discord", discord_uid) {
+        Ok(resolved) => resolved.user().id.clone(),
+        Err(e) => {
+            warn!(error = %e, discord_uid, "slash command: user resolution failed");
+            discord_uid.to_string()
+        }
+    }
+}
+
+/// Build a user-centric session key for slash commands.
+fn slash_session_key(skynet_user_id: &str, guild_id: Option<GuildId>) -> String {
+    match guild_id {
+        Some(gid) => format!("user:{}:discord:guild_{}", skynet_user_id, gid),
+        None => format!("user:{}:discord:dm", skynet_user_id),
+    }
+}
+
 /// `/ask message:String` — send a message to the AI.
 async fn handle_ask<C: DiscordAppContext + 'static>(
     app: &Arc<C>,
@@ -106,11 +129,9 @@ async fn handle_ask<C: DiscordAppContext + 'static>(
         )
         .await?;
 
-    let user_id = command.user.id;
-    let session_key = match command.guild_id {
-        Some(gid) => format!("discord:guild_{}:{}", gid, user_id),
-        None => format!("discord:dm:{}", user_id),
-    };
+    let discord_uid = command.user.id.to_string();
+    let skynet_user_id = resolve_skynet_user_id(app, &discord_uid);
+    let session_key = slash_session_key(&skynet_user_id, command.guild_id);
 
     let response = match process_message_non_streaming(
         app,
@@ -122,6 +143,7 @@ async fn handle_ask<C: DiscordAppContext + 'static>(
         Some(command.channel_id.get()),
         None,
         None,
+        Some(&skynet_user_id),
     )
     .await
     {
@@ -157,11 +179,9 @@ async fn handle_clear<C: DiscordAppContext + 'static>(
     ctx: &Context,
     command: &CommandInteraction,
 ) -> Result<(), serenity::Error> {
-    let user_id = command.user.id;
-    let session_key = match command.guild_id {
-        Some(gid) => format!("discord:guild_{}:{}", gid, user_id),
-        None => format!("discord:dm:{}", user_id),
-    };
+    let discord_uid = command.user.id.to_string();
+    let skynet_user_id = resolve_skynet_user_id(app, &discord_uid);
+    let session_key = slash_session_key(&skynet_user_id, command.guild_id);
 
     // Delete all turns for this session.
     let history = app
@@ -224,8 +244,14 @@ async fn handle_memory<C: DiscordAppContext + 'static>(
     ctx: &Context,
     command: &CommandInteraction,
 ) -> Result<(), serenity::Error> {
-    let user_id = format!("discord:{}", command.user.id);
-    let memories = app.memory().search(&user_id, "*", 10).unwrap_or_default();
+    // Resolve to Skynet user so memories are looked up by the unified user ID.
+    let discord_uid = command.user.id.to_string();
+    let skynet_user_id = resolve_skynet_user_id(app, &discord_uid);
+
+    let memories = app
+        .memory()
+        .search(&skynet_user_id, "*", 10)
+        .unwrap_or_default();
 
     let response = if memories.is_empty() {
         "No memories stored for your account.".to_string()

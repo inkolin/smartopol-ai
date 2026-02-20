@@ -33,7 +33,7 @@ pub struct ChatRequest {
     /// The message to send to the AI agent.
     pub message: String,
     /// Optional session key suffix. Defaults to `"default"`.
-    /// Full key becomes `http:terminal:{session_id}`.
+    /// Full key becomes `user:{uid}:terminal:{session_id}`.
     #[serde(default)]
     pub session_id: Option<String>,
     /// Optional per-request model override.
@@ -96,9 +96,14 @@ pub async fn chat_handler(
         }));
     }
 
-    // ── Build session key ────────────────────────────────────────────────────
+    // ── Resolve user ─────────────────────────────────────────────────────────
+    // Terminal users are resolved as channel="terminal", identifier="default"
+    // (or a custom session suffix). This auto-creates a Skynet user on first use.
     let session_suffix = req.session_id.as_deref().unwrap_or("default");
-    let session_key = format!("http:terminal:{session_suffix}");
+    let (skynet_user_id, _user_context) = resolve_terminal_user(&state, session_suffix);
+
+    // ── Build session key ────────────────────────────────────────────────────
+    let session_key = format!("user:{}:terminal:{}", skynet_user_id, session_suffix);
 
     // ── Register cancellation token ──────────────────────────────────────────
     let cancel = CancellationToken::new();
@@ -112,11 +117,12 @@ pub async fn chat_handler(
         &session_key,
         "terminal",
         &req.message,
-        None,
+        _user_context.as_deref(),
         req.model.as_deref(),
         None,
         Some(cancel),
         None, // no attachment blocks
+        Some(&skynet_user_id),
     )
     .await;
 
@@ -144,6 +150,29 @@ pub async fn chat_handler(
                     error: e.to_string(),
                 }),
             ))
+        }
+    }
+}
+
+/// Resolve a terminal user to a Skynet user ID and optionally build memory context.
+///
+/// Returns `(skynet_user_id, user_context)`.
+fn resolve_terminal_user(state: &AppState, session_suffix: &str) -> (String, Option<String>) {
+    let identifier = format!("terminal:{}", session_suffix);
+    match state.users.resolve("terminal", &identifier) {
+        Ok(resolved) => {
+            let user_id = resolved.user().id.clone();
+            let user_context = state
+                .memory
+                .build_user_context(&user_id)
+                .ok()
+                .filter(|ctx| !ctx.rendered.is_empty())
+                .map(|ctx| ctx.rendered);
+            (user_id, user_context)
+        }
+        Err(e) => {
+            warn!(error = %e, "terminal user resolution failed");
+            (format!("terminal:{}", session_suffix), None)
         }
     }
 }
