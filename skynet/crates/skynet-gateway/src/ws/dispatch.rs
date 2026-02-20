@@ -1181,6 +1181,15 @@ async fn handle_slash_command(message: &str, app: &AppState) -> Option<String> {
         return Some(crate::stop::execute_stop(app).await);
     }
 
+    // /reload
+    if trimmed.eq_ignore_ascii_case("/reload") {
+        app.agent.reload_prompt().await;
+        return Some(
+            "Workspace prompt reloaded from disk. All `.md` files in `~/.skynet/` re-read."
+                .to_string(),
+        );
+    }
+
     // /config
     if trimmed.eq_ignore_ascii_case("/config") {
         let model = app.agent.get_model().await;

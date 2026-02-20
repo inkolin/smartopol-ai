@@ -84,6 +84,12 @@ impl AgentRuntime {
         self.prompt.read().await
     }
 
+    /// Reload workspace prompt files from disk (hot-reload without restart).
+    pub async fn reload_prompt(&self) {
+        let mut guard = self.prompt.write().await;
+        guard.reload_workspace();
+    }
+
     /// Process a user message and return the AI response (non-streaming).
     pub async fn chat(&self, user_message: &str) -> Result<ChatResponse, ProviderError> {
         let req = self.build_request(user_message, None, None, None).await;

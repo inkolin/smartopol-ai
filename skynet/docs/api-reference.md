@@ -672,6 +672,32 @@ The corresponding `RES` frame for the `chat.send` REQ is sent after the final de
 
 ---
 
+## Slash Commands
+
+Text-based slash commands intercepted at the gateway level before reaching the AI. Zero token cost — the AI never sees them. These work on **all channels** (WebSocket, Discord, future Telegram, etc.) because they are intercepted in the `chat.send` pipeline.
+
+| Command | Description |
+|---------|-------------|
+| `/model` | Show current default model |
+| `/model <name>` | Switch model (`opus`, `sonnet`, `haiku`, or full model ID) |
+| `/stop` | Cancel the currently running chat operation |
+| `/config` | Show runtime configuration (model, provider, port, database) |
+| `/reload` | Reload workspace prompt files from `~/.skynet/` (hot-reload, no restart needed) |
+
+### Discord-only slash commands
+
+These are additionally registered as Discord application commands (the `/` popup menu) when `slash_commands = true` in config. They provide Discord-native UX for common operations.
+
+| Command | Description |
+|---------|-------------|
+| `/ask <message>` | Send a message to the AI (deferred response with "thinking...") |
+| `/clear` | Clear conversation history for this session |
+| `/memory` | Show stored user memories (ephemeral, only visible to you) |
+
+All gateway commands above (`/model`, `/stop`, `/config`, `/reload`) are also registered as Discord slash commands for convenience.
+
+---
+
 ## Limits
 
 | Parameter | Value |

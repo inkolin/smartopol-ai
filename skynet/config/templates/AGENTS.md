@@ -17,7 +17,15 @@ Missing tool? Install it yourself. Never ask the user to install something you c
 - Write it down. Mental notes don't survive restarts.
 - `knowledge_write()` for verified facts and structured data.
 - `MEMORY.md` for curated long-term notes and observations.
+- `USER.md` for the user's personal info (name, preferences, timezone).
 - Check both before claiming you don't know something.
+
+### Persistence
+
+Your workspace files (`~/.skynet/*.md`) are readable and writable — use
+`read_file` and `write_file` to maintain them as you see fit.
+`USER.md` is a good place for user profile facts. `MEMORY.md` is yours
+to curate. Your memory lives on the filesystem — use it.
 
 ## Crash recovery
 

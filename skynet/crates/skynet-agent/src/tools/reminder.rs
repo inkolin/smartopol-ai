@@ -196,9 +196,11 @@ impl<C: MessageContext + 'static> Tool for ReminderTool<C> {
     }
 
     fn description(&self) -> &str {
-        "Schedule a proactive reminder to be delivered at a future time. \
-         Use action='add' to create a reminder, action='list' to see all scheduled \
-         reminders, or action='remove' to cancel one by job_id."
+        "ALWAYS use this tool when the user asks to be reminded, notified, or \
+         woken up at a future time. This is a real async timer (1-second precision) — \
+         the reminder is delivered to the user's channel after the specified delay. \
+         Do NOT respond with reminder text directly; call this tool instead. \
+         Actions: 'add' (create), 'list' (view all), 'remove' (cancel by job_id)."
     }
 
     fn input_schema(&self) -> Value {

@@ -37,6 +37,7 @@ pub async fn register_commands(ctx: &Context, guild_id: Option<GuildId>) {
                 .required(false),
             ),
         CreateCommand::new("memory").description("Show your stored user memories"),
+        CreateCommand::new("reload").description("Reload workspace prompt files from disk"),
     ];
 
     match guild_id {
@@ -66,6 +67,7 @@ pub async fn handle_interaction<C: DiscordAppContext + 'static>(
         "clear" => handle_clear(app, ctx, command).await,
         "model" => handle_model(app, ctx, command).await,
         "memory" => handle_memory(app, ctx, command).await,
+        "reload" => handle_reload(app, ctx, command).await,
         _ => {
             respond_ephemeral(ctx, command, "Unknown command.").await;
             Ok(())
@@ -264,6 +266,22 @@ async fn handle_memory<C: DiscordAppContext + 'static>(
     };
 
     respond_ephemeral(ctx, command, &response).await;
+    Ok(())
+}
+
+/// `/reload` — reload workspace prompt files from disk (hot-reload).
+async fn handle_reload<C: DiscordAppContext + 'static>(
+    app: &Arc<C>,
+    ctx: &Context,
+    command: &CommandInteraction,
+) -> Result<(), serenity::Error> {
+    app.agent().reload_prompt().await;
+    respond_ephemeral(
+        ctx,
+        command,
+        "Workspace prompt reloaded from disk. All `.md` files in `~/.skynet/` re-read.",
+    )
+    .await;
     Ok(())
 }
 
