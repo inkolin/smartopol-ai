@@ -14,6 +14,24 @@ use tracing::warn;
 use crate::app::AppState;
 
 // ---------------------------------------------------------------------------
+// provider.status
+// ---------------------------------------------------------------------------
+
+/// Handler for `provider.status` — returns health info for all configured providers.
+pub async fn handle_provider_status(req_id: &str, app: &AppState) -> ResFrame {
+    match app.agent.health() {
+        Some(health) => {
+            let entries = health.all_entries();
+            ResFrame::ok(req_id, serde_json::json!({ "providers": entries }))
+        }
+        None => ResFrame::ok(
+            req_id,
+            serde_json::json!({ "providers": [], "message": "health tracking not configured" }),
+        ),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // sessions.list
 // ---------------------------------------------------------------------------
 

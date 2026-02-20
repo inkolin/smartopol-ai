@@ -21,7 +21,7 @@ skynet/
     skynet-discord/     # Discord adapter (serenity 0.12) — attachments, embeds, threads, slash commands, reactions, voice
 ```
 
-**13 crates total. 76 tests passing.**
+**13 crates total. 87 tests passing.**
 
 ## Crate Descriptions
 
@@ -133,7 +133,40 @@ Cache breakpoints are set on the last token of each tier boundary. When the work
 3. If all providers fail, the last error is returned to the caller.
 4. Successful responses are returned immediately without trying lower-priority providers.
 
-Provider health state is not persisted — failover is stateless per-request. A future phase will add circuit breakers.
+### Health Tracking
+
+A passive `HealthTracker` records the outcome (success/failure) and latency of every real request. No test pings are sent — health is derived entirely from production traffic.
+
+Each provider is classified into one of six statuses based on a rolling 5-minute window:
+
+| Status | Condition |
+|--------|-----------|
+| `Ok` | >80% success rate |
+| `Degraded` | 50-80% success rate |
+| `Down` | <50% success rate |
+| `RateLimited` | Last error was 429 |
+| `AuthExpired` | Last error was 401 / auth failure |
+| `Unknown` | No data yet |
+
+Health data is exposed via:
+- **`provider.status`** WS method — full per-provider health array
+- **`GET /health`** HTTP endpoint — summary with name, status, avg latency
+- **System prompt** — concise health summary injected into the AI's volatile context tier
+
+When only one provider is configured (no router), a `TrackedProvider` wrapper provides the same health tracking.
+
+### Token Lifecycle Monitor
+
+A background Tokio task runs every 5 minutes and proactively refreshes OAuth tokens that are within 15 minutes of expiry. Providers report their token status via `token_info()` on the `LlmProvider` trait:
+
+| Token type | Providers | Refreshable |
+|-----------|-----------|-------------|
+| `ApiKey` | Anthropic (API key), OpenAI, all OpenAI-compat | No |
+| `OAuth` | Anthropic (Keychain), Qwen | Yes |
+| `Exchange` | GitHub Copilot | Yes |
+| `None` | Ollama, LM Studio, llama.cpp | N/A |
+
+If a refresh fails, the provider's health status is updated to `AuthExpired`.
 
 ## Tool System
 

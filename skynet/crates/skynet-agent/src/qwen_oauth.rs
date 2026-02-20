@@ -13,7 +13,9 @@ use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, info, warn};
 
 use crate::openai;
-use crate::provider::{ChatRequest, ChatResponse, LlmProvider, ProviderError};
+use crate::provider::{
+    ChatRequest, ChatResponse, LlmProvider, ProviderError, TokenInfo, TokenType,
+};
 use crate::stream::StreamEvent;
 
 const QWEN_TOKEN_URL: &str = "https://chat.qwen.ai/api/v1/oauth2/token";
@@ -220,6 +222,19 @@ impl LlmProvider for QwenOAuthProvider {
 
         openai::process_openai_stream(resp, req.model.clone(), tx).await;
         Ok(())
+    }
+
+    fn token_info(&self) -> Option<TokenInfo> {
+        let creds = self.credentials.try_read().ok()?;
+        Some(TokenInfo {
+            token_type: TokenType::OAuth,
+            expires_at: Some(creds.expiry_date / 1000), // stored as millis, convert to secs
+            refreshable: true,
+        })
+    }
+
+    async fn refresh_auth(&self) -> Result<(), ProviderError> {
+        self.ensure_token().await.map(|_| ())
     }
 }
 

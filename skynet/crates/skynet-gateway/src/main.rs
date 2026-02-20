@@ -153,14 +153,18 @@ async fn main() -> anyhow::Result<()> {
         Some(fired_tx),
     )?;
 
-    // initialize LLM provider from config
-    let provider = build_provider(&config);
+    // initialize health tracker for provider monitoring
+    let health_tracker = skynet_agent::health::HealthTracker::new();
+
+    // initialize LLM provider from config (with health tracking)
+    let provider = build_provider(&config, Some(health_tracker.clone()));
     let prompt = skynet_agent::prompt::PromptBuilder::load(
         config.agent.soul_path.as_deref(),
         config.agent.workspace_dir.as_deref(),
     );
     let agent =
-        skynet_agent::runtime::AgentRuntime::new(provider, prompt, config.agent.model.clone());
+        skynet_agent::runtime::AgentRuntime::new(provider, prompt, config.agent.model.clone())
+            .with_health(health_tracker);
 
     // terminal manager — no DB needed, all state is in-process
     let terminal = skynet_terminal::manager::TerminalManager::new();
@@ -175,6 +179,57 @@ async fn main() -> anyhow::Result<()> {
         terminal,
     ));
     let router = app::build_router(state.clone());
+
+    // Spawn background token lifecycle monitor — proactively refreshes
+    // OAuth tokens before they expire (checks every 5 minutes).
+    if state
+        .agent
+        .provider()
+        .token_info()
+        .is_some_and(|i| i.refreshable)
+    {
+        let monitor_state = Arc::clone(&state);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                let provider = monitor_state.agent.provider();
+                if let Some(info) = provider.token_info() {
+                    let now = chrono::Utc::now().timestamp();
+                    let expiring_soon = info.expires_at.is_some_and(|exp| exp < now + 900); // 15 min buffer
+
+                    if expiring_soon && info.refreshable {
+                        match provider.refresh_auth().await {
+                            Ok(()) => {
+                                info!("token monitor: refreshed auth for {}", provider.name())
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "token monitor: auth refresh failed for {}: {}",
+                                    provider.name(),
+                                    e
+                                );
+                                if let Some(h) = monitor_state.agent.health() {
+                                    h.update_auth_status(
+                                        provider.name(),
+                                        skynet_agent::health::ProviderStatus::AuthExpired,
+                                    );
+                                }
+                            }
+                        }
+                    } else if expiring_soon && !info.refreshable {
+                        if let Some(h) = monitor_state.agent.health() {
+                            h.update_auth_status(
+                                provider.name(),
+                                skynet_agent::health::ProviderStatus::AuthExpired,
+                            );
+                        }
+                    }
+                }
+            }
+        });
+        info!("token lifecycle monitor started (5-min interval)");
+    }
 
     // Spawn the delivery router: routes fired scheduler jobs to Discord or WS.
     let state_for_router = Arc::clone(&state);
@@ -319,8 +374,9 @@ async fn main() -> anyhow::Result<()> {
 /// requests automatically fail over to the next slot on error.
 fn build_provider(
     config: &skynet_core::config::SkynetConfig,
+    health: Option<std::sync::Arc<skynet_agent::health::HealthTracker>>,
 ) -> Box<dyn skynet_agent::provider::LlmProvider> {
-    use skynet_agent::router::{ProviderRouter, ProviderSlot};
+    use skynet_agent::router::{ProviderRouter, ProviderSlot, TrackedProvider};
 
     let mut slots: Vec<ProviderSlot> = Vec::new();
 
@@ -550,13 +606,23 @@ fn build_provider(
             tracing::warn!("No LLM provider configured — chat.send will return errors");
             Box::new(NullProvider)
         }
-        1 => slots.remove(0).provider,
+        1 => {
+            let provider = slots.remove(0).provider;
+            match health {
+                Some(h) => Box::new(TrackedProvider::new(provider, h)),
+                None => provider,
+            }
+        }
         _ => {
             info!(
                 "ProviderRouter: {} slots configured (automatic failover)",
                 slots.len()
             );
-            Box::new(ProviderRouter::new(slots))
+            let router = ProviderRouter::new(slots);
+            match health {
+                Some(h) => Box::new(router.with_health(h)),
+                None => Box::new(router),
+            }
         }
     }
 }

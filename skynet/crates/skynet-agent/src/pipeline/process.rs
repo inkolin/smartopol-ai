@@ -110,6 +110,15 @@ pub async fn process_message_non_streaming<C: MessageContext + 'static>(
         system_prompt.volatile_tier.push_str(&built.skill_index);
     }
 
+    // Inject provider health summary into the volatile tier (when multiple providers
+    // are configured and at least one has recorded data).
+    if let Some(health) = ctx.agent().health() {
+        let summary = health.summary_for_prompt();
+        if !summary.is_empty() {
+            system_prompt.volatile_tier.push_str(&summary);
+        }
+    }
+
     // Inject connected channels and current user info into the volatile tier.
     {
         let channels = ctx.connected_channels();

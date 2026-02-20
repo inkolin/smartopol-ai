@@ -3,6 +3,7 @@ pub mod anthropic_stream;
 pub mod bedrock;
 pub mod claude_cli;
 pub mod copilot;
+pub mod health;
 pub mod ollama;
 pub mod openai;
 pub mod pipeline;

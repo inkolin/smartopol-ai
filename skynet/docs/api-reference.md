@@ -4,16 +4,22 @@
 
 ### GET /health
 
-Liveness probe. Returns server metadata.
+Liveness probe. Returns server metadata and provider health.
 
 ```json
 {
   "status": "ok",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "protocol": 3,
-  "ws_clients": 0
+  "ws_clients": 0,
+  "providers": [
+    { "name": "anthropic", "status": "Ok", "avg_latency_ms": 450 },
+    { "name": "groq", "status": "Degraded", "avg_latency_ms": 1200 }
+  ]
 }
 ```
+
+The `providers` array is included when the health tracker has data. Each entry shows the provider name, current status (`Ok`, `Degraded`, `Down`, `RateLimited`, `AuthExpired`, `Unknown`), and average latency in milliseconds.
 
 ### GET /ws
 
@@ -196,6 +202,55 @@ Returns the current status of the agent runtime including provider availability.
   ]
 }
 ```
+
+---
+
+### provider.status
+
+Returns per-provider health information including status, latency, and error counts.
+
+**Params:** none
+
+**Success payload:**
+```json
+{
+  "providers": [
+    {
+      "name": "anthropic",
+      "status": "Ok",
+      "last_success_at": 1708444200,
+      "last_error_at": null,
+      "last_error": null,
+      "avg_latency_ms": 450,
+      "requests_ok": 42,
+      "requests_err": 0,
+      "total_requests": 42
+    },
+    {
+      "name": "groq",
+      "status": "RateLimited",
+      "last_success_at": 1708443900,
+      "last_error_at": 1708444100,
+      "last_error": "rate limited (retry after 5000ms)",
+      "avg_latency_ms": 200,
+      "requests_ok": 15,
+      "requests_err": 3,
+      "total_requests": 18
+    }
+  ]
+}
+```
+
+| Status value | Meaning |
+|-------------|---------|
+| `Ok` | >80% success rate in the rolling 5-minute window |
+| `Degraded` | 50-80% success rate |
+| `Down` | <50% success rate |
+| `RateLimited` | Last error was a rate limit (429) |
+| `AuthExpired` | Authentication token expired or invalid |
+| `Unknown` | No requests recorded yet |
+
+Health is tracked passively from real request outcomes — no test pings are sent.
 
 ---
 

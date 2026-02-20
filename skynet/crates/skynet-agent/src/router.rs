@@ -1,8 +1,11 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-use crate::provider::{ChatRequest, ChatResponse, LlmProvider, ProviderError};
+use crate::health::HealthTracker;
+use crate::provider::{ChatRequest, ChatResponse, LlmProvider, ProviderError, TokenInfo};
 use crate::stream::StreamEvent;
 
 /// Configuration for a single provider slot inside the ProviderRouter.
@@ -30,6 +33,7 @@ impl ProviderSlot {
 /// `send()` and `send_stream()`.
 pub struct ProviderRouter {
     slots: Vec<ProviderSlot>,
+    health: Option<Arc<HealthTracker>>,
 }
 
 impl ProviderRouter {
@@ -40,7 +44,21 @@ impl ProviderRouter {
             !slots.is_empty(),
             "ProviderRouter requires at least one provider slot"
         );
-        Self { slots }
+        Self {
+            slots,
+            health: None,
+        }
+    }
+
+    /// Attach a health tracker for recording request outcomes.
+    pub fn with_health(mut self, health: Arc<HealthTracker>) -> Self {
+        self.health = Some(health);
+        self
+    }
+
+    /// Access the underlying provider slots (for token monitoring).
+    pub fn slots(&self) -> &[ProviderSlot] {
+        &self.slots
     }
 }
 
@@ -57,8 +75,12 @@ impl LlmProvider for ProviderRouter {
             let provider_name = slot.provider.name();
 
             for attempt in 0..=slot.max_retries {
+                let start = std::time::Instant::now();
                 match slot.provider.send(req).await {
                     Ok(resp) => {
+                        if let Some(ref h) = self.health {
+                            h.record_success(provider_name, start.elapsed().as_millis() as u64);
+                        }
                         if attempt > 0 {
                             info!(
                                 provider = %provider_name,
@@ -69,6 +91,9 @@ impl LlmProvider for ProviderRouter {
                         return Ok(resp);
                     }
                     Err(e) => {
+                        if let Some(ref h) = self.health {
+                            h.record_error(provider_name, &e);
+                        }
                         warn!(
                             provider = %provider_name,
                             attempt,
@@ -117,8 +142,12 @@ impl LlmProvider for ProviderRouter {
             let provider_name = slot.provider.name();
 
             for attempt in 0..=slot.max_retries {
+                let start = std::time::Instant::now();
                 match slot.provider.send_stream(req, tx.clone()).await {
                     Ok(()) => {
+                        if let Some(ref h) = self.health {
+                            h.record_success(provider_name, start.elapsed().as_millis() as u64);
+                        }
                         if attempt > 0 {
                             info!(
                                 provider = %provider_name,
@@ -129,6 +158,9 @@ impl LlmProvider for ProviderRouter {
                         return Ok(());
                     }
                     Err(e) => {
+                        if let Some(ref h) = self.health {
+                            h.record_error(provider_name, &e);
+                        }
                         warn!(
                             provider = %provider_name,
                             attempt,
@@ -161,6 +193,87 @@ impl LlmProvider for ProviderRouter {
 
         Err(last_err
             .unwrap_or_else(|| ProviderError::Unavailable("all providers failed".to_string())))
+    }
+
+    fn token_info(&self) -> Option<TokenInfo> {
+        // Return info from the first slot that has token info.
+        self.slots
+            .iter()
+            .find_map(|slot| slot.provider.token_info())
+    }
+
+    async fn refresh_auth(&self) -> Result<(), ProviderError> {
+        // Refresh all slots that support it.
+        for slot in &self.slots {
+            if slot.provider.token_info().is_some_and(|i| i.refreshable) {
+                slot.provider.refresh_auth().await?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Thin wrapper that records health metrics for a single provider.
+///
+/// Used when only one provider is configured (no `ProviderRouter`), so the
+/// single provider still gets health tracking.
+pub struct TrackedProvider {
+    inner: Box<dyn LlmProvider>,
+    health: Arc<HealthTracker>,
+}
+
+impl TrackedProvider {
+    pub fn new(inner: Box<dyn LlmProvider>, health: Arc<HealthTracker>) -> Self {
+        Self { inner, health }
+    }
+}
+
+#[async_trait]
+impl LlmProvider for TrackedProvider {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    async fn send(&self, req: &ChatRequest) -> Result<ChatResponse, ProviderError> {
+        let start = std::time::Instant::now();
+        match self.inner.send(req).await {
+            Ok(resp) => {
+                self.health
+                    .record_success(self.inner.name(), start.elapsed().as_millis() as u64);
+                Ok(resp)
+            }
+            Err(e) => {
+                self.health.record_error(self.inner.name(), &e);
+                Err(e)
+            }
+        }
+    }
+
+    async fn send_stream(
+        &self,
+        req: &ChatRequest,
+        tx: mpsc::Sender<StreamEvent>,
+    ) -> Result<(), ProviderError> {
+        let start = std::time::Instant::now();
+        match self.inner.send_stream(req, tx).await {
+            Ok(()) => {
+                self.health
+                    .record_success(self.inner.name(), start.elapsed().as_millis() as u64);
+                Ok(())
+            }
+            Err(e) => {
+                self.health.record_error(self.inner.name(), &e);
+                Err(e)
+            }
+        }
+    }
+
+    fn token_info(&self) -> Option<TokenInfo> {
+        self.inner.token_info()
+    }
+
+    async fn refresh_auth(&self) -> Result<(), ProviderError> {
+        self.inner.refresh_auth().await
     }
 }
 
@@ -241,5 +354,49 @@ mod tests {
 
         let result = router.send(&dummy_request()).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn router_records_health_on_success() {
+        use crate::health::HealthTracker;
+
+        let health = HealthTracker::new();
+        let router = ProviderRouter::new(vec![ProviderSlot::new(Box::new(AlwaysOk), 0)])
+            .with_health(health.clone());
+
+        let _ = router.send(&dummy_request()).await;
+        let entries = health.all_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "always-ok");
+        assert_eq!(entries[0].requests_ok, 1);
+    }
+
+    #[tokio::test]
+    async fn router_records_health_on_failure() {
+        use crate::health::{HealthTracker, ProviderStatus};
+
+        let health = HealthTracker::new();
+        let router = ProviderRouter::new(vec![ProviderSlot::new(Box::new(AlwaysFail), 0)])
+            .with_health(health.clone());
+
+        let _ = router.send(&dummy_request()).await;
+        let entries = health.all_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "always-fail");
+        assert_eq!(entries[0].requests_err, 1);
+        assert_eq!(entries[0].status, ProviderStatus::Down);
+    }
+
+    #[tokio::test]
+    async fn tracked_provider_records_health() {
+        use crate::health::HealthTracker;
+
+        let health = HealthTracker::new();
+        let tracked = TrackedProvider::new(Box::new(AlwaysOk), health.clone());
+
+        let _ = tracked.send(&dummy_request()).await;
+        let entries = health.all_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].requests_ok, 1);
     }
 }

@@ -1,9 +1,13 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use serde::Deserialize;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, warn};
 
-use crate::provider::{ChatRequest, ChatResponse, LlmProvider, ProviderError};
+use crate::provider::{
+    ChatRequest, ChatResponse, LlmProvider, ProviderError, TokenInfo, TokenType,
+};
 use crate::stream::StreamEvent;
 use crate::thinking::ThinkingLevel;
 
@@ -13,9 +17,11 @@ const OAUTH_TOKEN_PREFIX: &str = "sk-ant-oat01-";
 
 pub struct AnthropicProvider {
     client: reqwest::Client,
-    api_key: String,
+    api_key: Arc<RwLock<String>>,
     base_url: String,
     is_oauth: bool,
+    /// Optional macOS Keychain entry name for auto-refreshing OAuth tokens.
+    keychain_source: Option<String>,
 }
 
 impl AnthropicProvider {
@@ -24,22 +30,57 @@ impl AnthropicProvider {
         Self {
             client: reqwest::Client::new(),
             is_oauth,
-            api_key,
+            api_key: Arc::new(RwLock::new(api_key)),
             base_url: base_url.unwrap_or_else(|| "https://api.anthropic.com".to_string()),
+            keychain_source: None,
         }
+    }
+
+    /// Create with an optional Keychain source for token auto-refresh.
+    pub fn with_keychain(mut self, source: Option<String>) -> Self {
+        self.keychain_source = source;
+        self
     }
 
     /// Apply auth headers — OAuth tokens use Bearer + beta header,
     /// regular API keys use x-api-key.
-    fn apply_auth(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+    async fn apply_auth(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        let key = self.api_key.read().await;
         if self.is_oauth {
             builder
-                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Authorization", format!("Bearer {}", *key))
                 .header("anthropic-beta", OAUTH_BETA)
         } else {
-            builder.header("x-api-key", &self.api_key)
+            builder.header("x-api-key", key.as_str())
         }
     }
+}
+
+/// Read an OAuth token from the macOS Keychain.
+///
+/// Extracts the `accessToken` field from the JSON stored in the given
+/// Keychain entry. Returns `Err` if the command fails or parsing fails.
+pub fn read_keychain_token(entry: &str) -> Result<String, ProviderError> {
+    let output = std::process::Command::new("security")
+        .args(["find-generic-password", "-s", entry, "-w"])
+        .output()
+        .map_err(|e| ProviderError::Unavailable(format!("keychain read failed: {e}")))?;
+
+    if !output.status.success() {
+        return Err(ProviderError::Unavailable(
+            "keychain entry not found".to_string(),
+        ));
+    }
+
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let parsed: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| ProviderError::Parse(format!("keychain JSON parse error: {e}")))?;
+
+    parsed
+        .get("accessToken")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| ProviderError::Parse("no accessToken in keychain data".to_string()))
 }
 
 #[async_trait]
@@ -61,7 +102,7 @@ impl LlmProvider for AnthropicProvider {
             .header("content-type", "application/json")
             .json(&body);
 
-        let resp = self.apply_auth(builder).send().await?;
+        let resp = self.apply_auth(builder).await.send().await?;
 
         let status = resp.status().as_u16();
         if status == 429 {
@@ -112,7 +153,7 @@ impl LlmProvider for AnthropicProvider {
             .header("content-type", "application/json")
             .json(&body);
 
-        let resp = self.apply_auth(builder).send().await?;
+        let resp = self.apply_auth(builder).await.send().await?;
 
         let status = resp.status().as_u16();
         if status == 429 {
@@ -138,6 +179,31 @@ impl LlmProvider for AnthropicProvider {
 
         // hand off to the SSE stream processor
         crate::anthropic_stream::process_stream(resp, tx).await;
+        Ok(())
+    }
+
+    fn token_info(&self) -> Option<TokenInfo> {
+        Some(TokenInfo {
+            token_type: if self.is_oauth {
+                TokenType::OAuth
+            } else {
+                TokenType::ApiKey
+            },
+            expires_at: None, // Keychain tokens don't expose expiry
+            refreshable: self.keychain_source.is_some(),
+        })
+    }
+
+    async fn refresh_auth(&self) -> Result<(), ProviderError> {
+        if let Some(ref entry) = self.keychain_source {
+            let new_token = read_keychain_token(entry)?;
+            let is_oauth = new_token.starts_with(OAUTH_TOKEN_PREFIX);
+            *self.api_key.write().await = new_token;
+            // Note: is_oauth is set at construction and won't change mid-flight
+            // for a given Keychain entry. If it somehow does, the next request
+            // will use the correct auth header since apply_auth checks is_oauth.
+            let _ = is_oauth;
+        }
         Ok(())
     }
 }

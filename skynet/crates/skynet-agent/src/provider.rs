@@ -6,6 +6,30 @@ use crate::prompt::SystemPrompt;
 use crate::stream::StreamEvent;
 use crate::thinking::ThinkingLevel;
 
+/// Classification of a provider's authentication mechanism.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenType {
+    /// Plain API key (e.g. `sk-...`).
+    ApiKey,
+    /// OAuth access token with refresh capability.
+    OAuth,
+    /// Token exchanged from another credential (e.g. Copilot).
+    Exchange,
+    /// No authentication needed (e.g. local Ollama).
+    None,
+}
+
+/// Snapshot of a provider's current authentication state.
+#[derive(Debug, Clone, Serialize)]
+pub struct TokenInfo {
+    pub token_type: TokenType,
+    /// Unix timestamp (seconds) when the token expires. `None` if unknown.
+    pub expires_at: Option<i64>,
+    /// Whether the provider can automatically refresh its credentials.
+    pub refreshable: bool,
+}
+
 /// A single message in the conversation history.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
@@ -97,6 +121,17 @@ pub trait LlmProvider: Send + Sync {
                 stop_reason: resp.stop_reason,
             })
             .await;
+        Ok(())
+    }
+
+    /// Return current authentication state. Providers without tokens return `None`.
+    fn token_info(&self) -> Option<TokenInfo> {
+        None
+    }
+
+    /// Attempt to refresh authentication credentials.
+    /// Providers that don't support refresh return `Ok(())` (no-op).
+    async fn refresh_auth(&self) -> Result<(), ProviderError> {
         Ok(())
     }
 }

@@ -4,6 +4,29 @@ SmartopolAI supports **42+ LLM providers** out of the box. No plugins needed —
 
 ---
 
+## Important: Anthropic Subscription Terms
+
+**Anthropic explicitly prohibits using Claude Pro/Max subscription tokens (`sk-ant-oat01-...`) in third-party applications, agents, and SDKs.** This includes the Anthropic Agent SDK and any non-Anthropic software that forwards subscription-based OAuth tokens to the Anthropic API. Violations can result in account suspension.
+
+**What this means for SmartopolAI users:**
+
+- **DO NOT** use Claude Pro/Max subscription tokens (`sk-ant-oat01-...`) as your `providers.anthropic.api_key`. This violates Anthropic's Terms of Service.
+- **USE** a proper Anthropic API key (`sk-ant-api03-...`) from [console.anthropic.com](https://console.anthropic.com). API keys have usage-based billing and are permitted for all use cases.
+- **OR USE** the `claude_cli` provider, which runs Claude Code directly as a subprocess. This is the legitimate way to leverage a Claude subscription — Claude Code is an official Anthropic product:
+
+```toml
+[providers.claude_cli]
+command = "claude"  # must be installed and authenticated
+```
+
+SmartopolAI auto-detects `claude` on PATH as a last-resort provider even without explicit configuration.
+
+**Recommended setup for Anthropic users:**
+1. Get an API key at [console.anthropic.com](https://console.anthropic.com) (pay-per-use)
+2. OR install [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and use the `claude_cli` provider (subscription-based)
+
+---
+
 ## Provider Architecture
 
 ```
@@ -110,15 +133,10 @@ base_url = "https://my-company-llm.internal.com"
 model = "claude-sonnet-4-6"
 
 [providers.anthropic]
-api_key = "sk-ant-api03-..."
+api_key = "sk-ant-api03-..."  # API key from console.anthropic.com
 ```
 
-OAuth tokens (Claude Max subscribers) are auto-detected by prefix:
-
-```toml
-[providers.anthropic]
-api_key = "sk-ant-oat01-..."  # OAuth — uses Bearer auth automatically
-```
+> **Warning:** Do NOT use subscription OAuth tokens (`sk-ant-oat01-...`) here. Anthropic's Terms of Service prohibit using Claude Pro/Max subscription tokens in third-party agents. Use an API key or the `claude_cli` provider instead. See the [terms warning](#important-anthropic-subscription-terms) above.
 
 ### OpenAI
 

@@ -2,6 +2,40 @@
 
 All notable changes to the Skynet gateway are documented here.
 
+## [0.4.0] - 2026-02-20
+
+### Added
+- **skynet-agent/health**: New `HealthTracker` module — passive provider health monitoring based on real request outcomes (no test pings)
+  - Rolling 5-minute window with `DashMap` for lock-free concurrent access
+  - `ProviderStatus` classification: Ok, Degraded, Down, RateLimited, AuthExpired, Unknown
+  - Status derived from success rate (>80% Ok, 50-80% Degraded, <50% Down) with error-type overrides
+  - `summary_for_prompt()` — concise health summary injected into the AI's system prompt
+- **skynet-agent/provider**: Token lifecycle management on the `LlmProvider` trait
+  - `TokenType` enum: ApiKey, OAuth, Exchange, None
+  - `TokenInfo` struct with token type, expiry timestamp, and refreshability flag
+  - `token_info()` default method (returns `None` for simple providers)
+  - `refresh_auth()` default method (no-op for providers without refreshable tokens)
+- **skynet-agent/router**: `TrackedProvider` wrapper for single-provider health tracking
+- **skynet-agent/router**: `ProviderRouter` now records health on every `send()`/`send_stream()` call
+- **skynet-agent/router**: `ProviderRouter::slots()` accessor for token monitoring
+- **skynet-agent/anthropic**: Mutable `Arc<RwLock<String>>` API key with Keychain refresh support
+  - `with_keychain()` builder for macOS Keychain auto-refresh
+  - `read_keychain_token()` — extracts OAuth token from macOS Keychain entries
+  - `token_info()` reports OAuth vs API key type and refreshability
+  - `refresh_auth()` reads fresh token from Keychain when configured
+- **skynet-agent/copilot**: `token_info()` reports Exchange type with expiry, `refresh_auth()` triggers token re-exchange
+- **skynet-agent/qwen_oauth**: `token_info()` reports OAuth type with expiry, `refresh_auth()` triggers token refresh
+- **skynet-gateway**: `provider.status` WS method — returns per-provider health array (name, status, latency, error counts)
+- **skynet-gateway**: `GET /health` now includes `"providers"` array with name, status, and avg_latency_ms per provider
+- **skynet-gateway**: Background token lifecycle monitor (5-min interval, 15-min expiry buffer) — proactively refreshes OAuth tokens before they expire
+- **skynet-agent/pipeline**: Provider health summary injected into system prompt volatile tier
+- 15 new tests: 8 in health.rs, 3 router health tracking tests, 4 in existing test suites
+
+### Changed
+- **skynet-agent/runtime**: `AgentRuntime` gains optional `health: Arc<HealthTracker>` with `with_health()` builder and `health()` accessor
+- **skynet-agent/anthropic**: `apply_auth()` is now `async` (reads API key from `RwLock`)
+- **skynet-gateway/main.rs**: `build_provider()` accepts optional `HealthTracker`, wraps single providers in `TrackedProvider`, attaches health to `ProviderRouter`
+
 ## [0.3.0] - 2026-02-20
 
 ### Added

@@ -1,10 +1,10 @@
-use std::time::Instant;
-
-#[cfg(feature = "hooks")]
 use std::sync::Arc;
+use std::time::Instant;
 
 use tokio::sync::{mpsc, RwLock};
 use tracing::info;
+
+use crate::health::HealthTracker;
 
 use crate::prompt::{PromptBuilder, SessionInfo};
 use crate::provider::{ChatRequest, ChatResponse, LlmProvider, Message, ProviderError, Role};
@@ -22,6 +22,8 @@ pub struct AgentRuntime {
     provider: Box<dyn LlmProvider>,
     prompt: RwLock<PromptBuilder>,
     default_model: RwLock<String>,
+    /// Optional health tracker for provider monitoring.
+    health: Option<Arc<HealthTracker>>,
     /// Optional hook engine for LLM observability events.
     #[cfg(feature = "hooks")]
     hooks: Option<Arc<HookEngine>>,
@@ -37,6 +39,7 @@ impl AgentRuntime {
             provider,
             prompt: RwLock::new(prompt),
             default_model: RwLock::new(default_model),
+            health: None,
             #[cfg(feature = "hooks")]
             hooks: None,
         }
@@ -51,6 +54,17 @@ impl AgentRuntime {
     pub async fn set_model(&self, model: String) -> String {
         let mut guard = self.default_model.write().await;
         std::mem::replace(&mut *guard, model)
+    }
+
+    /// Attach a health tracker for provider monitoring.
+    pub fn with_health(mut self, health: Arc<HealthTracker>) -> Self {
+        self.health = Some(health);
+        self
+    }
+
+    /// Access the health tracker (if configured).
+    pub fn health(&self) -> Option<&Arc<HealthTracker>> {
+        self.health.as_ref()
     }
 
     /// Attach a hook engine for LLM observability events.

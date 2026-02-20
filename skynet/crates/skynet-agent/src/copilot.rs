@@ -13,7 +13,9 @@ use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, info, warn};
 
 use crate::openai;
-use crate::provider::{ChatRequest, ChatResponse, LlmProvider, ProviderError};
+use crate::provider::{
+    ChatRequest, ChatResponse, LlmProvider, ProviderError, TokenInfo, TokenType,
+};
 use crate::stream::StreamEvent;
 
 const COPILOT_TOKEN_URL: &str = "https://api.github.com/copilot_internal/v2/token";
@@ -242,6 +244,20 @@ impl LlmProvider for CopilotProvider {
 
         openai::process_openai_stream(resp, req.model.clone(), tx).await;
         Ok(())
+    }
+
+    fn token_info(&self) -> Option<TokenInfo> {
+        // Use try_read to avoid blocking — return Unknown expiry if locked.
+        let cached = self.cached.try_read().ok()?;
+        Some(TokenInfo {
+            token_type: TokenType::Exchange,
+            expires_at: cached.as_ref().map(|c| c.expires_at),
+            refreshable: true,
+        })
+    }
+
+    async fn refresh_auth(&self) -> Result<(), ProviderError> {
+        self.ensure_token().await.map(|_| ())
     }
 }
 

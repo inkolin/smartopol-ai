@@ -107,6 +107,11 @@ pub async fn route(
         "terminal.job_kill" => handlers::handle_terminal_job_kill(params, req_id, app).await,
 
         // ------------------------------------------------------------------
+        // Provider health
+        // ------------------------------------------------------------------
+        "provider.status" => handlers::handle_provider_status(req_id, app).await,
+
+        // ------------------------------------------------------------------
         // System — version & update
         // ------------------------------------------------------------------
         "system.version" => handle_system_version(req_id),
