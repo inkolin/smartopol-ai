@@ -33,6 +33,24 @@ fn bash_session_lock() -> &'static tokio::sync::Mutex<Option<BashSession>> {
     AI_BASH_SESSION.get_or_init(|| tokio::sync::Mutex::new(None))
 }
 
+/// Kill the persistent bash session (if any) and clear the stored state.
+///
+/// Called by the `/stop` emergency stop command. Returns `true` if a session
+/// was found and killed, `false` if no session was active.
+pub async fn kill_bash_session<C: MessageContext + 'static>(ctx: &C) -> bool {
+    let mut guard = bash_session_lock().lock().await;
+    if let Some(ref s) = *guard {
+        let sid = skynet_terminal::types::SessionId(s.id.clone());
+        let mut term = ctx.terminal().lock().await;
+        let _ = term.kill(&sid).await;
+        *guard = None;
+        tracing::info!("persistent bash session killed by /stop");
+        true
+    } else {
+        false
+    }
+}
+
 /// Tool that runs bash commands in a single persistent PTY session.
 ///
 /// Unlike `execute_command` (fresh `sh -c` per call), this tool keeps one

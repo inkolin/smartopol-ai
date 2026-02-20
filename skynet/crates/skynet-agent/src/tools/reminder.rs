@@ -20,18 +20,26 @@ use super::{Tool, ToolResult};
 /// AI tool that creates, lists, and removes scheduled reminders.
 pub struct ReminderTool<C: MessageContext + 'static> {
     ctx: Arc<C>,
-    /// Delivery channel name stored in the job action (e.g. `"discord"`, `"ws"`).
+    /// Delivery channel name stored in the job action (e.g. `"discord"`, `"ws"`, `"terminal"`).
     channel_name: String,
     /// Discord channel ID to deliver to, or `None` for WS broadcast.
     channel_id: Option<u64>,
+    /// Session key for HTTP/terminal notification routing.
+    session_key: Option<String>,
 }
 
 impl<C: MessageContext + 'static> ReminderTool<C> {
-    pub fn new(ctx: Arc<C>, channel_name: &str, channel_id: Option<u64>) -> Self {
+    pub fn new(
+        ctx: Arc<C>,
+        channel_name: &str,
+        channel_id: Option<u64>,
+        session_key: Option<&str>,
+    ) -> Self {
         Self {
             ctx,
             channel_name: channel_name.to_string(),
             channel_id,
+            session_key: session_key.map(String::from),
         }
     }
 
@@ -83,6 +91,7 @@ impl<C: MessageContext + 'static> ReminderTool<C> {
             message: message.clone(),
             image_url,
             bash_command,
+            session_key: self.session_key.clone(),
         };
 
         let action_json = match serde_json::to_string(&action) {

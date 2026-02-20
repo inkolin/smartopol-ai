@@ -20,9 +20,11 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 use skynet_agent::pipeline::process_message_non_streaming;
+use skynet_agent::provider::ProviderError;
 
 use crate::app::AppState;
 
@@ -83,12 +85,29 @@ pub async fn chat_handler(
         ));
     }
 
+    // ── Intercept /stop ──────────────────────────────────────────────────────
+    if req.message.trim().eq_ignore_ascii_case("/stop") {
+        let report = crate::stop::execute_stop(state.as_ref()).await;
+        return Ok(Json(ChatReply {
+            reply: report,
+            model: "gateway".to_string(),
+            tokens_in: 0,
+            tokens_out: 0,
+        }));
+    }
+
     // ── Build session key ────────────────────────────────────────────────────
     let session_suffix = req.session_id.as_deref().unwrap_or("default");
     let session_key = format!("http:terminal:{session_suffix}");
 
+    // ── Register cancellation token ──────────────────────────────────────────
+    let cancel = CancellationToken::new();
+    state
+        .active_operations
+        .insert(session_key.clone(), cancel.clone());
+
     // ── Run full pipeline (tools, history, memory, tool loop) ────────────────
-    match process_message_non_streaming(
+    let result = process_message_non_streaming(
         &state,
         &session_key,
         "terminal",
@@ -96,14 +115,26 @@ pub async fn chat_handler(
         None,
         req.model.as_deref(),
         None,
+        Some(cancel),
+        None, // no attachment blocks
     )
-    .await
-    {
-        Ok(result) => Ok(Json(ChatReply {
-            reply: result.content,
-            model: result.model,
-            tokens_in: result.tokens_in,
-            tokens_out: result.tokens_out,
+    .await;
+
+    // Always remove the token when done.
+    state.active_operations.remove(&session_key);
+
+    match result {
+        Ok(r) => Ok(Json(ChatReply {
+            reply: r.content,
+            model: r.model,
+            tokens_in: r.tokens_in,
+            tokens_out: r.tokens_out,
+        })),
+        Err(ProviderError::Cancelled) => Ok(Json(ChatReply {
+            reply: "Operation cancelled by /stop.".to_string(),
+            model: "gateway".to_string(),
+            tokens_in: 0,
+            tokens_out: 0,
         })),
         Err(e) => {
             warn!(error = %e, "POST /chat failed");
@@ -118,7 +149,7 @@ pub async fn chat_handler(
 }
 
 /// Returns true if the request is authorised.
-fn check_auth(state: &AppState, headers: &HeaderMap) -> bool {
+pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> bool {
     use skynet_core::config::AuthMode;
 
     match &state.config.gateway.auth.mode {
@@ -139,7 +170,7 @@ fn check_auth(state: &AppState, headers: &HeaderMap) -> bool {
     }
 }
 
-fn extract_bearer(headers: &HeaderMap) -> Option<&str> {
+pub(crate) fn extract_bearer(headers: &HeaderMap) -> Option<&str> {
     headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())

@@ -134,11 +134,26 @@ pub struct ProvidersConfig {
     pub qwen_oauth: Option<QwenOAuthConfig>,
     pub bedrock: Option<BedrockConfig>,
     pub vertex: Option<VertexConfig>,
+    pub claude_cli: Option<ClaudeCliConfig>,
     /// Additional OpenAI-compatible providers. Each entry can reference a
     /// well-known provider ID (e.g. "groq", "deepseek") or define a fully
     /// custom endpoint. Providers are tried in order after the primary slots.
     #[serde(default)]
     pub openai_compat: Vec<OpenAiCompatEntry>,
+}
+
+/// Claude Code CLI provider — uses `claude -p` pipe mode as an LLM backend.
+/// Claude Code's built-in tools (Bash, Read, Write, Grep) work automatically.
+/// Skynet-specific tools are exposed via MCP bridge (see `mcp-bridge` subcommand).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeCliConfig {
+    /// Path to the `claude` binary. Default: "claude" (from PATH).
+    #[serde(default = "default_claude_command")]
+    pub command: String,
+}
+
+fn default_claude_command() -> String {
+    "claude".to_string()
 }
 
 /// A single OpenAI-compatible provider entry.
@@ -249,10 +264,43 @@ pub struct DiscordConfig {
     /// Defaults to true.
     #[serde(default = "bool_true")]
     pub dm_allowed: bool,
+    /// Bot online status: "online", "idle", "dnd", "invisible".
+    #[serde(default = "default_discord_status")]
+    pub status: String,
+    /// Activity type: "playing", "listening", "watching", "competing", "custom".
+    #[serde(default)]
+    pub activity_type: Option<String>,
+    /// Activity text shown in the bot's status.
+    #[serde(default)]
+    pub activity_name: Option<String>,
+    /// Max attachment size in bytes. Default: 8 MB.
+    #[serde(default = "default_max_attachment_bytes")]
+    pub max_attachment_bytes: u64,
+    /// When true, the bot reacts with status emojis (🧠→🛠️→✅/❌).
+    #[serde(default = "bool_true")]
+    pub ack_reactions: bool,
+    /// When true, replies are sent in auto-created threads.
+    #[serde(default)]
+    pub auto_thread: bool,
+    /// When true, slash commands (/ask, /clear, /model, /memory) are registered.
+    #[serde(default)]
+    pub slash_commands: bool,
+    /// Voice transcription backend: "none", "openai_whisper", "whisper_cpp".
+    #[serde(default = "default_voice_transcription")]
+    pub voice_transcription: String,
 }
 
 fn bool_true() -> bool {
     true
+}
+fn default_discord_status() -> String {
+    "online".to_string()
+}
+fn default_max_attachment_bytes() -> u64 {
+    8 * 1024 * 1024
+}
+fn default_voice_transcription() -> String {
+    "none".to_string()
 }
 
 /// Authentication mode for an incoming webhook source.

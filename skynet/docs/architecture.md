@@ -18,9 +18,10 @@ skynet/
     skynet-sessions/   # user-centric session keys (user:{id}:agent:{id}:{name}), SQLite persistence
     skynet-scheduler/  # Tokio timer wheel + SQLite job persistence
     skynet-terminal/    # PTY sessions, one-shot exec, background jobs, safety checker
+    skynet-discord/     # Discord adapter (serenity 0.12) — attachments, embeds, threads, slash commands, reactions, voice
 ```
 
-**12 crates total. 72 tests passing.**
+**13 crates total. 76 tests passing.**
 
 ## Crate Descriptions
 

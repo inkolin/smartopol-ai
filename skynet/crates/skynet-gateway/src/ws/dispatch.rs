@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket};
 use skynet_protocol::frames::{EventFrame, ResFrame};
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::app::AppState;
@@ -329,7 +330,7 @@ async fn handle_streaming(
 
     // Build tools once for the entire turn.
     // WS has no single Discord channel_id — reminders are broadcast to all WS clients.
-    let built = crate::tools::build_tools(Arc::clone(app), channel_name, None);
+    let built = crate::tools::build_tools(Arc::clone(app), channel_name, None, Some(session_key));
     let tool_defs = crate::tools::tool_definitions(&built.tools);
 
     // Acquire the system prompt then immediately release the RwLock so we
@@ -358,6 +359,11 @@ async fn handle_streaming(
         .collect();
     raw_messages.push(serde_json::json!({ "role": "user", "content": message }));
 
+    // Register cancellation token for /stop support.
+    let cancel = CancellationToken::new();
+    app.active_operations
+        .insert(session_key.to_string(), cancel.clone());
+
     let mut accumulated = String::new();
     let mut final_model = String::new();
     let mut final_tokens_in: u32 = 0;
@@ -368,6 +374,13 @@ async fn handle_streaming(
     const MAX_ITERS: usize = 10;
 
     for _iter in 0..MAX_ITERS {
+        // Check cancellation at the top of each iteration.
+        if cancel.is_cancelled() {
+            warn!("streaming tool loop cancelled by /stop");
+            final_stop = "cancelled".to_string();
+            break;
+        }
+
         let req = ChatRequest {
             model: model.clone(),
             system: plain.clone(),
@@ -390,6 +403,24 @@ async fn handle_streaming(
 
         loop {
             tokio::select! {
+                _ = cancel.cancelled() => {
+                    warn!("streaming cancelled by /stop during LLM call");
+                    let ev = EventFrame::new(
+                        "chat.cancelled",
+                        serde_json::json!({ "req_id": req_id }),
+                    );
+                    let _ = send::json_shared(tx, &ev).await;
+                    app.active_operations.remove(session_key);
+                    return ResFrame::ok(
+                        req_id,
+                        serde_json::json!({
+                            "content": accumulated,
+                            "model": "gateway",
+                            "usage": { "input_tokens": 0, "output_tokens": 0 },
+                            "stop_reason": "cancelled",
+                        }),
+                    );
+                }
                 event = stream_rx.recv() => {
                     match event {
                         Some(StreamEvent::TextDelta { text }) => {
@@ -472,7 +503,15 @@ async fn handle_streaming(
         // Execute each tool — tool output is sent as a separate `chat.tool` event
         // (not inline in the chat bubble) so the UI can render it independently.
         let mut tool_results: Vec<serde_json::Value> = Vec::new();
+        let mut cancelled = false;
         for (id, name, input) in iter_tools {
+            // Check cancellation before each tool execution.
+            if cancel.is_cancelled() {
+                warn!(tool = %name, "streaming tool execution cancelled by /stop");
+                cancelled = true;
+                break;
+            }
+
             // Human-readable label for the tool call.
             let label = if name == "execute_command" || name == "bash" {
                 let cmd = input.get("command").and_then(|v| v.as_str()).unwrap_or("?");
@@ -535,8 +574,16 @@ async fn handle_streaming(
             }));
         }
 
+        if cancelled {
+            final_stop = "cancelled".to_string();
+            break;
+        }
+
         raw_messages.push(serde_json::json!({ "role": "user", "content": tool_results }));
     }
+
+    // Remove the cancellation token now that we're done.
+    app.active_operations.remove(session_key);
 
     info!(
         tokens_in = final_tokens_in,
@@ -612,7 +659,7 @@ async fn handle_streaming_inline(
     use skynet_agent::provider::ChatRequest;
     use skynet_agent::stream::StreamEvent;
 
-    let built = crate::tools::build_tools(Arc::clone(app), "ws", None);
+    let built = crate::tools::build_tools(Arc::clone(app), "ws", None, None);
     let tool_defs = crate::tools::tool_definitions(&built.tools);
 
     let mut system_prompt = {
@@ -832,8 +879,13 @@ async fn handle_non_streaming(
     channel_name: &str,
 ) -> ResFrame {
     use skynet_agent::pipeline::process_message_non_streaming;
+    use skynet_agent::provider::ProviderError;
 
-    match process_message_non_streaming(
+    let cancel = CancellationToken::new();
+    app.active_operations
+        .insert(session_key.to_string(), cancel.clone());
+
+    let result = process_message_non_streaming(
         app,
         session_key,
         channel_name,
@@ -841,9 +893,14 @@ async fn handle_non_streaming(
         user_context,
         model_override,
         None, // WS: no Discord channel_id; reminder delivery is broadcast to ws_clients
+        Some(cancel),
+        None, // no attachment blocks
     )
-    .await
-    {
+    .await;
+
+    app.active_operations.remove(session_key);
+
+    match result {
         Ok(r) => {
             info!(
                 tokens_in = r.tokens_in,
@@ -865,6 +922,15 @@ async fn handle_non_streaming(
                 }),
             )
         }
+        Err(ProviderError::Cancelled) => ResFrame::ok(
+            req_id,
+            serde_json::json!({
+                "content": "Operation cancelled by /stop.",
+                "model": "gateway",
+                "usage": { "input_tokens": 0, "output_tokens": 0 },
+                "stop_reason": "cancelled",
+            }),
+        ),
         Err(e) => {
             warn!(error = %e, "chat.send (non-streaming) failed");
             ResFrame::err(req_id, "LLM_ERROR", &e.to_string())
@@ -1081,6 +1147,11 @@ async fn handle_slash_command(message: &str, app: &AppState) -> Option<String> {
             "Unknown model: `{}`. Available: `opus`, `sonnet`, `haiku`",
             arg
         ));
+    }
+
+    // /stop
+    if trimmed.eq_ignore_ascii_case("/stop") {
+        return Some(crate::stop::execute_stop(app).await);
     }
 
     // /config

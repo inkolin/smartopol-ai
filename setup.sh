@@ -419,6 +419,7 @@ wizard_provider() {
         echo -e "    2) ${BOLD}Subscription${RESET} — Claude Max, GitHub Copilot, Qwen free"
         echo -e "    3) ${BOLD}Local${RESET} — Ollama / LM Studio (free, runs on your machine)"
         echo -e "    4) ${BOLD}Enterprise${RESET} — AWS Bedrock / Google Vertex AI"
+        echo -e "    5) ${BOLD}Claude Code CLI${RESET} — use your existing ${CYAN}claude${RESET} installation"
         echo
         local access_choice=""
         prompt access_choice "Choice" "1"
@@ -859,6 +860,47 @@ location   = \"${gcp_location}\""
             esac
             ;;
 
+        # ═══════════════════════════════════════════════════════════════════════
+        # CLAUDE CODE CLI flow
+        # ═══════════════════════════════════════════════════════════════════════
+        5)
+            PROVIDER_NAME="claude-cli"
+            AGENT_MODEL="claude-sonnet-4-6"
+
+            # Check if claude binary exists
+            local claude_cmd="claude"
+            if ! command -v "$claude_cmd" &>/dev/null; then
+                warn "claude CLI not found in PATH."
+                echo -e "  Install Claude Code first: ${CYAN}npm install -g @anthropic-ai/claude-code${RESET}"
+                echo -e "  Or: ${CYAN}brew install claude-code${RESET} (macOS)"
+                echo
+                echo -ne "  Enter path to claude binary (or press Enter to abort): "
+                local custom_claude; read -r custom_claude
+                if [[ -z "$custom_claude" ]]; then
+                    continue
+                fi
+                if [[ ! -x "$custom_claude" ]]; then
+                    warn "File not executable: ${custom_claude}"
+                    continue
+                fi
+                claude_cmd="$custom_claude"
+            fi
+
+            # Verify it responds
+            info "Testing claude CLI..."
+            if "$claude_cmd" --version &>/dev/null 2>&1; then
+                local cli_version
+                cli_version=$("$claude_cmd" --version 2>/dev/null | head -1)
+                success "Claude Code found: ${cli_version}"
+            else
+                warn "claude CLI found but --version failed. Continuing anyway."
+            fi
+
+            PROVIDER_TOML="[providers.claude_cli]
+command = \"${claude_cmd}\""
+            done=true
+            ;;
+
         *)
             warn "Invalid choice."
             continue
@@ -909,9 +951,9 @@ choose_model() {
                     ;;
             esac
             ;;
-        anthropic)
-            echo "    1) claude-sonnet-4-6     (recommended)"
-            echo "    2) claude-opus-4-6       (most capable)"
+        anthropic|claude-cli)
+            echo "    1) claude-sonnet-4-6     (recommended — fast, excellent coding)"
+            echo "    2) claude-opus-4-6       (most capable — complex tasks)"
             echo "    3) claude-haiku-4-5      (fastest, cheapest)"
             echo "    4) Custom model"
             echo
@@ -1436,6 +1478,19 @@ first_run_greeting() {
     fi
     echo
 
+    # ── Register MCP bridge with Claude Code (if provider is claude-cli) ────
+    if [[ "$PROVIDER_NAME" == "claude-cli" ]] && command -v claude &>/dev/null; then
+        info "Registering Skynet MCP bridge with Claude Code..."
+        if "$SKYNET_DIR/$BINARY_NAME" --version &>/dev/null 2>&1; then
+            if claude mcp add --transport stdio skynet -- "$SKYNET_DIR/$BINARY_NAME" mcp-bridge 2>/dev/null; then
+                success "MCP bridge registered — Claude Code can now use Skynet knowledge/memory tools"
+            else
+                warn "MCP bridge registration failed. Register manually:"
+                warn "  claude mcp add --transport stdio skynet -- $SKYNET_DIR/$BINARY_NAME mcp-bridge"
+            fi
+        fi
+    fi
+
     # ── Offer auto-start on boot (only when AI works) ─────────────────────────
     if $ai_ok; then
         echo -e "${BOLD}  Auto-start SmartopolAI when your computer boots?${RESET}"
@@ -1491,15 +1546,45 @@ for line in open('$CONFIG'):
 
 PORT=$(grep 'port' "$CONFIG" 2>/dev/null | head -1 | tr -cd '0-9')
 PORT="${PORT:-18789}"
-URL="http://127.0.0.1:${PORT}/chat"
+BASE="http://127.0.0.1:${PORT}"
+URL="${BASE}/chat"
+NOTIF_URL="${BASE}/notifications"
+SESSION_ID="default"
 
 if [[ -z "$TOKEN" ]]; then
     echo "No auth token found in $CONFIG" >&2; exit 1
 fi
 
+# Spinner while waiting for AI response
+spin() {
+    local chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local i=0
+    while true; do
+        printf '\r\033[0;36m  %s thinking...\033[0m' "${chars:i%${#chars}:1}"
+        ((i++))
+        sleep 0.1
+    done
+}
+
+# Poll and display any pending async notifications
+poll_notifications() {
+    local raw
+    raw=$(curl -s -m 5 \
+        -H "Authorization: Bearer $TOKEN" \
+        "${NOTIF_URL}?session_id=${SESSION_ID}" 2>/dev/null) || return 0
+    python3 -c "
+import json,sys
+try:
+    d=json.loads(sys.argv[1])
+    for n in d.get('notifications', []):
+        print('\033[0;33m[notification]\033[0m \033[0;36mSmartopolAI:\033[0m ' + n)
+except: pass
+" "$raw"
+}
+
 send_msg() {
     local body
-    body=$(python3 -c "import json,sys; print(json.dumps({'message':sys.argv[1]}))" "$1")
+    body=$(python3 -c "import json,sys; print(json.dumps({'message':sys.argv[1],'session_id':sys.argv[2]}))" "$1" "$SESSION_ID")
     local raw
     raw=$(curl -s -m 120 \
         -H "Content-Type: application/json" \
@@ -1522,13 +1607,32 @@ else
     echo "SmartopolAI Terminal  (type /exit to quit)"
     echo
     while true; do
+        # Check for async notifications before each prompt
+        poll_notifications
+
         printf '\033[1mYou:\033[0m '
         read -r input || break
         [[ -z "$input" ]] && continue
         [[ "$input" == "/exit" || "$input" == "exit" ]] && break
-        printf '\033[0;36mSmartopolAI:\033[0m '
-        send_msg "$input"
-        echo
+
+        # Start spinner in background
+        spin &
+        SPIN_PID=$!
+        disown $SPIN_PID
+
+        # Get response
+        REPLY_TEXT=$(send_msg "$input" 2>/dev/null) || REPLY_TEXT="(no response)"
+
+        # Kill spinner and clear its line
+        kill $SPIN_PID 2>/dev/null || true
+        wait $SPIN_PID 2>/dev/null || true
+        printf '\r\033[K'
+
+        # Print response
+        printf '\033[0;36mSmartopolAI:\033[0m %s\n\n' "$REPLY_TEXT"
+
+        # Check for notifications that arrived during the response
+        poll_notifications
     done
 fi
 CLIMARKER

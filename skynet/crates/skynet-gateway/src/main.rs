@@ -7,6 +7,8 @@ use clap::{Parser, Subcommand};
 mod app;
 mod auth;
 mod http;
+pub mod mcp_bridge;
+pub mod stop;
 pub mod tools;
 pub mod update;
 mod ws;
@@ -38,6 +40,9 @@ enum Commands {
     },
     /// Show version, git commit, install mode, and data directory.
     Version,
+    /// Run as MCP stdio server (for Claude Code integration).
+    /// Exposes Skynet knowledge and memory tools via JSON-RPC over stdin/stdout.
+    McpBridge,
 }
 
 #[tokio::main]
@@ -49,6 +54,16 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Version) => {
             update::print_version();
             return Ok(());
+        }
+        Some(Commands::McpBridge) => {
+            // MCP bridge only needs config + SQLite, no full server stack.
+            let config_path = std::env::var("SKYNET_CONFIG").ok();
+            let config = skynet_core::config::SkynetConfig::load(config_path.as_deref())
+                .unwrap_or_else(|e| {
+                    eprintln!("Config load failed ({}), using defaults", e);
+                    skynet_core::config::SkynetConfig::default()
+                });
+            return mcp_bridge::run(&config);
         }
         Some(Commands::Update {
             check,
@@ -214,7 +229,7 @@ async fn main() -> anyhow::Result<()> {
                         tracing::warn!(job_id = %job.id, "discord delivery channel closed — message dropped");
                     }
                 }
-                "ws" => {
+                "ws" | "web" => {
                     let payload = serde_json::json!({
                         "event":   "reminder.fire",
                         "job_id":  job.id,
@@ -224,6 +239,17 @@ async fn main() -> anyhow::Result<()> {
                     for entry in state_for_router.ws_clients.iter() {
                         let _ = entry.value().try_send(payload.clone());
                     }
+                }
+                "terminal" => {
+                    let session_key = action
+                        .session_key
+                        .unwrap_or_else(|| "http:terminal:default".to_string());
+                    state_for_router
+                        .notifications
+                        .entry(session_key)
+                        .or_default()
+                        .push(message);
+                    tracing::info!(job_id = %job.id, "notification queued for HTTP polling");
                 }
                 other => tracing::warn!(job_id = %job.id, "unknown reminder channel: {other}"),
             }
@@ -460,6 +486,21 @@ fn build_provider(
         ));
     }
 
+    // ── Claude CLI ──────────────────────────────────────────────────────────
+    if let Some(ref claude_cli) = config.providers.claude_cli {
+        info!(
+            "LLM provider slot[{}]: Claude CLI ({})",
+            slots.len(),
+            claude_cli.command
+        );
+        slots.push(ProviderSlot::new(
+            Box::new(skynet_agent::claude_cli::ClaudeCliProvider::new(
+                claude_cli.command.clone(),
+            )),
+            0, // no retries — CLI either works or doesn't
+        ));
+    }
+
     // ── Env var fallbacks (only when no TOML provider is configured) ─────────
     if slots.is_empty() {
         if let Ok(token) = std::env::var("ANTHROPIC_OAUTH_TOKEN") {
@@ -481,6 +522,17 @@ fn build_provider(
                 1,
             ));
         }
+    }
+
+    // ── Auto-detect claude CLI as last resort ───────────────────────────────
+    if slots.is_empty() && which::which("claude").is_ok() {
+        info!("LLM provider: Claude CLI (auto-detected)");
+        slots.push(ProviderSlot::new(
+            Box::new(skynet_agent::claude_cli::ClaudeCliProvider::new(
+                "claude".to_string(),
+            )),
+            0,
+        ));
     }
 
     // ── Return single provider or router ─────────────────────────────────────

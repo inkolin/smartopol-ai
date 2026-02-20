@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Discord Full-Featured Upgrade)
+
+- **Smart message chunking** (`skynet-discord/src/send.rs`): code-fence-aware splitting — tracks ` ```lang ` blocks across chunk boundaries, closes and reopens fences automatically
+- **Reply-to support**: first chunk of every response is a Discord reply to the user's message; subsequent chunks are plain messages
+- **Reaction status system** (`ack.rs`): emoji reactions on the user's message show processing status (🧠 thinking → 🛠️ working → ✅ done / ❌ error), gated by `ack_reactions` config
+- **Attachment handling** (`attach.rs`): classifies Discord attachments (image/text/voice/audio/other), downloads and converts to Anthropic content blocks — images become base64 `image` blocks, text files become `text` blocks
+- **Multimodal pipeline support**: new `attachment_blocks` parameter on `process_message_non_streaming` — when provided, builds `raw_messages` with structured content blocks for the LLM. All existing callers pass `None` (backward compatible)
+- **Embed output** (`embed.rs`): LLM can output `DISCORD_EMBED:` sentinel blocks with title/color/description/fields/footer — parsed into serenity `CreateEmbed`
+- **Thread-aware sessions**: thread messages use `discord:thread_{thread_id}:{user_id}` session keys; auto-thread creates new threads from guild messages when `auto_thread = true`
+- **Slash commands** (`commands.rs`): `/ask`, `/clear`, `/model`, `/memory` — registered on startup when `slash_commands = true`, with deferred responses for `/ask`
+- **Config-driven presence**: `status` (online/idle/dnd/invisible) and `activity_type`/`activity_name` fields control bot presence
+- **Voice transcription** (`voice.rs`): two backends — OpenAI Whisper API and local whisper.cpp subprocess, configured via `voice_transcription` in `[channels.discord]`
+- **Expanded DiscordConfig**: 8 new config fields (status, activity_type, activity_name, max_attachment_bytes, ack_reactions, auto_thread, slash_commands, voice_transcription) — all with sane defaults, fully backward compatible
+- `GUILD_MESSAGE_REACTIONS` gateway intent added for reaction support
+- `base64` and `reqwest` dependencies added to `skynet-discord`
+
 ### Added (Self-Update System)
 
 - **Self-update engine** (`skynet-core/src/update.rs`, `skynet-gateway/src/update.rs`): built-in update management with three install modes — Source (git fetch + cargo build), Binary (tarball download + SHA256 verify + atomic replace), Docker (detection + instructions)

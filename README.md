@@ -41,7 +41,7 @@ Existing AI gateways share the same fundamental limitations:
 
 | Feature | SmartopolAI | OpenClaw |
 |---------|------------|----------|
-| **LLM providers** | 42+ (7 native + 32 registry) | ~5 |
+| **LLM providers** | 42+ (8 native + 32 registry + Claude CLI) | ~5 |
 | **Memory** | Persistent per-user FTS5 — survives restarts | Volatile per-session |
 | **Prompt caching** | 3-tier (90% savings on Anthropic) | None |
 | **Permissions** | RBAC: admin/user/child hierarchy | Flat: owner vs everyone |
@@ -53,6 +53,80 @@ Existing AI gateways share the same fundamental limitations:
 | **Scheduler** | Built-in cron/interval/once | External only |
 | **Streaming** | SSE + WebSocket delta events | No |
 | **Binary size** | ~25 MB | ~450 MB Docker image |
+| **Self-update** | Built-in, 3 modes, SHA256, rollback | npm update only |
+| **Claude Code CLI** | Native provider + MCP bridge | Not supported |
+| **Session storage** | SQLite WAL — atomic, concurrent-safe | JSONL files — race-prone ([#21813](https://github.com/openclaw/openclaw/issues/21813)) |
+
+### Session Integrity: SmartopolAI vs OpenClaw
+
+OpenClaw stores conversation history as append-only JSONL files (one line per message). This design has a critical concurrency flaw ([issue #21813](https://github.com/openclaw/openclaw/issues/21813)): when two agent runs execute concurrently on the same session, both can write `assistant` messages without an intervening `user` message. This permanently corrupts the session — every subsequent LLM call fails with "Message ordering conflict" because all major LLM APIs enforce strict role alternation.
+
+**Root cause:** The delivery mirror path (`transcript.ts:appendAssistantMessageToSessionTranscript`) writes to the JSONL file **without acquiring the session write lock**, while the main agent run path (`attempt.ts`) does use file-level locking. This creates a race window where the mirror write and the next agent run's write interleave.
+
+SmartopolAI uses **SQLite with WAL (Write-Ahead Logging)** for all session storage. SQLite provides:
+
+| | OpenClaw (JSONL) | SmartopolAI (SQLite WAL) |
+|---|---|---|
+| **Concurrency** | Manual file lock (incomplete) | Built-in WAL serialization |
+| **Atomicity** | None — partial writes possible | Full ACID transactions |
+| **Corruption recovery** | Manual — `/new` to reset | Automatic — WAL rollback |
+| **Role ordering** | Validated at LLM call time (too late) | Can be enforced at write time |
+| **Cross-process safety** | No (in-memory lane only) | Yes (kernel-level file locks) |
+
+This is not a theoretical advantage — it's a real production bug affecting OpenClaw users today.
+
+### Self-Update: SmartopolAI vs OpenClaw
+
+OpenClaw updates via `npm update -g openclaw` triggered by a gateway tool. SmartopolAI has a more robust built-in system:
+
+| | OpenClaw | SmartopolAI |
+|---|---|---|
+| **Trigger** | `update.run` gateway tool | `skynet-gateway update` CLI |
+| **Source** | npm registry | GitHub Releases |
+| **Check only** | No | `skynet-gateway update --check` |
+| **Auto-check on startup** | No | Every 24h (logs info, no action) |
+| **Confirmation** | None | Interactive Y/N (or `--yes` to skip) |
+| **SHA256 verification** | No | Yes (SHA256SUMS from release) |
+| **Rollback** | Manual `npm install openclaw@version` | `skynet-gateway update --rollback` (automatic .bak) |
+| **Restart** | Automatic | Automatic (launchd / systemd / detached script) |
+| **Install modes** | npm only | Binary download, Source (git+cargo), Docker |
+| **Config preserved** | Yes | Yes (only binary replaced) |
+| **Downtime** | ~5-10s | ~5-10s |
+
+```bash
+skynet-gateway update --check     # check for updates
+skynet-gateway update             # download and apply (asks Y/N)
+skynet-gateway update --yes       # apply without confirmation
+skynet-gateway update --rollback  # restore previous version instantly
+```
+
+### Claude Code CLI Integration
+
+SmartopolAI can use Claude Code (`claude` CLI) as an LLM backend. This is useful for users with a Claude Max/Pro subscription who want to avoid separate API costs.
+
+**How it works:**
+- `ClaudeCliProvider` sends prompts to `claude -p --output-format json`
+- Claude Code handles its own tools internally (Bash, Read, Write, Grep)
+- Skynet-specific tools (knowledge, memory) are exposed via MCP bridge
+- `skynet-gateway mcp-bridge` runs as an MCP stdio server that Claude Code discovers natively
+
+```
+User Message → Skynet Gateway → ClaudeCliProvider → claude -p
+                                                        ↓
+                                                   Claude Code
+                                              ┌────────┴────────┐
+                                         Built-in tools    Skynet MCP Bridge
+                                         (Bash, Read,     (knowledge, memory)
+                                          Write, Grep)
+```
+
+Setup:
+```bash
+./setup.sh           # choose option 5: Claude Code CLI
+# or manually:
+echo '[providers.claude_cli]' >> ~/.skynet/skynet.toml
+claude mcp add --transport stdio skynet -- skynet-gateway mcp-bridge
+```
 
 ---
 
@@ -246,7 +320,7 @@ It fetches the code, creates the plugin folder, writes `tool.toml` and the entry
 | Async runtime | Tokio |
 | Web server | Axum 0.8 (Tower + Hyper) |
 | Database | SQLite (bundled, WAL, FTS5) |
-| AI providers | 42+ providers (Anthropic, OpenAI, Groq, DeepSeek, Bedrock, Vertex AI, Copilot, Qwen, Ollama, and 30+ more) |
+| AI providers | 42+ providers (Anthropic, OpenAI, Claude Code CLI, Groq, DeepSeek, Bedrock, Vertex AI, Copilot, Qwen, Ollama, and 30+ more) |
 | Config | TOML + figment |
 | Discord | serenity 0.12 |
 

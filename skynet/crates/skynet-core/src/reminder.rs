@@ -20,6 +20,10 @@ pub struct ReminderAction {
     /// Optional shell command to execute at fire-time; stdout is appended to `message`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bash_command: Option<String>,
+    /// Session key for HTTP/terminal notification delivery.
+    /// Used by the delivery router to queue notifications for the correct session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_key: Option<String>,
 }
 
 /// Parsed and ready-to-send reminder; passed from the delivery router to the

@@ -29,23 +29,20 @@ pub async fn run_discord_delivery(
 
         tracing::debug!(job_id = %delivery.job_id, channel_id, "discord: delivering reminder");
 
-        match ChannelId::new(channel_id).say(&http, &text).await {
-            Ok(_) => {
-                tracing::info!(job_id = %delivery.job_id, channel_id, "discord: reminder delivered")
-            }
-            Err(e) => {
-                warn!(
-                    job_id = %delivery.job_id,
-                    channel_id,
-                    error = %e,
-                    "discord: reminder delivery FAILED"
-                );
-                let notice = format!(
-                    "⚠️ Reminder `{}` failed to deliver: `{}`",
-                    delivery.job_id, e
-                );
-                let _ = ChannelId::new(channel_id).say(&http, &notice).await;
-            }
+        if let Err(e) = crate::send::send_chunked(&http, ChannelId::new(channel_id), &text).await {
+            warn!(
+                job_id = %delivery.job_id,
+                channel_id,
+                error = %e,
+                "discord: reminder delivery FAILED"
+            );
+            let notice = format!(
+                "\u{26a0}\u{fe0f} Reminder `{}` failed to deliver: `{}`",
+                delivery.job_id, e
+            );
+            let _ = ChannelId::new(channel_id).say(&http, &notice).await;
+        } else {
+            tracing::info!(job_id = %delivery.job_id, channel_id, "discord: reminder delivered");
         }
     }
 

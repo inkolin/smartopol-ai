@@ -117,4 +117,7 @@ pub enum ProviderError {
 
     #[error("Provider unavailable: {0}")]
     Unavailable(String),
+
+    #[error("operation cancelled")]
+    Cancelled,
 }

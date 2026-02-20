@@ -1,6 +1,7 @@
 pub mod anthropic;
 pub mod anthropic_stream;
 pub mod bedrock;
+pub mod claude_cli;
 pub mod copilot;
 pub mod ollama;
 pub mod openai;

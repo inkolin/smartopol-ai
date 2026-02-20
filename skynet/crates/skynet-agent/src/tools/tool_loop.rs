@@ -3,6 +3,7 @@
 //! Flow: prompt → LLM → if tool_use → execute tools → inject results → LLM → repeat
 //! Stops when: stop_reason is not "tool_use", max iterations reached, or error.
 
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::provider::{ChatRequest, ChatResponse, LlmProvider, ToolCall};
@@ -21,6 +22,7 @@ pub async fn run_tool_loop(
     provider: &dyn LlmProvider,
     initial_request: ChatRequest,
     tools: &[Box<dyn Tool>],
+    cancel: Option<&CancellationToken>,
 ) -> Result<(ChatResponse, Vec<String>), crate::provider::ProviderError> {
     let mut raw_messages: Vec<serde_json::Value> =
         if let Some(ref raw) = initial_request.raw_messages {
@@ -38,6 +40,13 @@ pub async fn run_tool_loop(
     let mut called_tools: Vec<String> = Vec::new();
 
     for iteration in 0..MAX_ITERATIONS {
+        if let Some(token) = cancel {
+            if token.is_cancelled() {
+                warn!(iteration, "tool loop cancelled by /stop");
+                return Err(crate::provider::ProviderError::Cancelled);
+            }
+        }
+
         let mut req = initial_request.clone();
         req.raw_messages = Some(raw_messages.clone());
 
@@ -76,6 +85,12 @@ pub async fn run_tool_loop(
         let mut tool_result_content: Vec<serde_json::Value> = Vec::new();
 
         for call in &response.tool_calls {
+            if let Some(token) = cancel {
+                if token.is_cancelled() {
+                    warn!(tool = %call.name, "tool execution cancelled by /stop");
+                    return Err(crate::provider::ProviderError::Cancelled);
+                }
+            }
             called_tools.push(call.name.clone());
             let result = execute_tool(tools, call).await;
             tool_result_content.push(serde_json::json!({

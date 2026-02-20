@@ -17,18 +17,14 @@ use crate::handler::DiscordHandler;
 /// Reconnects automatically whenever the gateway drops — the bot is always online.
 pub struct DiscordAdapter<C: DiscordAppContext + 'static> {
     ctx: Arc<C>,
-    token: String,
-    require_mention: bool,
-    dm_allowed: bool,
+    config: DiscordConfig,
 }
 
 impl<C: DiscordAppContext + 'static> DiscordAdapter<C> {
     pub fn new(config: &DiscordConfig, ctx: Arc<C>) -> Self {
         Self {
             ctx,
-            token: config.bot_token.clone(),
-            require_mention: config.require_mention,
-            dm_allowed: config.dm_allowed,
+            config: config.clone(),
         }
     }
 
@@ -43,7 +39,8 @@ impl<C: DiscordAppContext + 'static> DiscordAdapter<C> {
         let intents = GatewayIntents::GUILDS
             | GatewayIntents::GUILD_MESSAGES
             | GatewayIntents::DIRECT_MESSAGES
-            | GatewayIntents::MESSAGE_CONTENT;
+            | GatewayIntents::MESSAGE_CONTENT
+            | GatewayIntents::GUILD_MESSAGE_REACTIONS;
 
         // Build first client — retry indefinitely until initial connection succeeds.
         let first_client = loop {
@@ -89,16 +86,15 @@ impl<C: DiscordAppContext + 'static> DiscordAdapter<C> {
         }
     }
 
-    /// Build a fresh serenity `Client` with our event handler and Online status.
+    /// Build a fresh serenity `Client` with our event handler and config-driven presence.
     async fn build_client(&self, intents: GatewayIntents) -> Result<Client, serenity::Error> {
         let handler = DiscordHandler {
             ctx: Arc::clone(&self.ctx),
-            require_mention: self.require_mention,
-            dm_allowed: self.dm_allowed,
+            config: self.config.clone(),
             bot_id: OnceLock::new(),
         };
 
-        Client::builder(&self.token, intents)
+        Client::builder(&self.config.bot_token, intents)
             .event_handler(handler)
             .await
     }

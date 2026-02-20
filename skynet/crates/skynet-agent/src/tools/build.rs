@@ -34,12 +34,13 @@ pub struct BuiltTools {
 /// - `knowledge_search`, `knowledge_write`, `knowledge_list`, `knowledge_delete`
 /// - `skill_read` (if skills are loaded)
 ///
-/// `channel_name` and `channel_id` are forwarded to `ReminderTool` so it can
-/// embed the correct delivery target in the persisted job action.
+/// `channel_name`, `channel_id`, and `session_key` are forwarded to `ReminderTool`
+/// so it can embed the correct delivery target in the persisted job action.
 pub fn build_tools<C: MessageContext + 'static>(
     ctx: Arc<C>,
     channel_name: &str,
     channel_id: Option<u64>,
+    session_key: Option<&str>,
 ) -> BuiltTools {
     let mut tools: Vec<Box<dyn Tool>> = vec![
         Box::new(super::read_file::ReadFileTool),
@@ -52,6 +53,7 @@ pub fn build_tools<C: MessageContext + 'static>(
             Arc::clone(&ctx),
             channel_name,
             channel_id,
+            session_key,
         )),
         Box::new(KnowledgeSearchTool::new(Arc::clone(&ctx))),
         Box::new(KnowledgeWriteTool::new(Arc::clone(&ctx))),

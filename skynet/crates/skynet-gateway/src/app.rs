@@ -15,6 +15,7 @@ use std::sync::{
     Arc,
 };
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use crate::ws::broadcast::EventBroadcaster;
 
@@ -36,6 +37,12 @@ pub struct AppState {
     pub terminal: tokio::sync::Mutex<TerminalManager>,
     /// Active WS connections: conn_id -> message sender.
     pub ws_clients: DashMap<String, mpsc::Sender<String>>,
+    /// Notification queue for HTTP/terminal clients: session_key -> pending messages.
+    /// Drained by `GET /notifications`.
+    pub notifications: DashMap<String, Vec<String>>,
+    /// Active pipeline operations: session_key -> CancellationToken.
+    /// `/stop` cancels all tokens to abort running tool loops.
+    pub active_operations: DashMap<String, CancellationToken>,
 }
 
 impl AppState {
@@ -60,6 +67,8 @@ impl AppState {
             scheduler,
             terminal: tokio::sync::Mutex::new(terminal),
             ws_clients: DashMap::new(),
+            notifications: DashMap::new(),
+            active_operations: DashMap::new(),
         }
     }
 
@@ -93,6 +102,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/", get(crate::http::ui::ui_handler))
         .route("/health", get(crate::http::health::health_handler))
         .route("/chat", post(crate::http::chat::chat_handler))
+        .route(
+            "/notifications",
+            get(crate::http::notifications::notifications_handler),
+        )
         .route("/ws", get(crate::ws::connection::ws_handler))
         .route(
             "/v1/chat/completions",
