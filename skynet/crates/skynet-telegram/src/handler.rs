@@ -9,9 +9,9 @@ use skynet_core::config::TelegramConfig;
 
 use crate::allow;
 use crate::attach;
+use crate::context::TelegramAppContext;
 use crate::send;
 use crate::typing::TypingHandle;
-use crate::context::TelegramAppContext;
 
 /// Main message handler registered in the teloxide Dispatcher.
 ///
@@ -152,9 +152,7 @@ pub async fn handle_message<C: TelegramAppContext + 'static>(
             }
             Err(e) => {
                 warn!(error = %e, session = %session_key2, "Telegram: LLM pipeline failed");
-                let _ = bot2
-                    .send_message(chat_id, format!("⚠️ Error: {e}"))
-                    .await;
+                let _ = bot2.send_message(chat_id, format!("⚠️ Error: {e}")).await;
             }
         }
     });

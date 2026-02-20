@@ -105,8 +105,8 @@ pub fn escape_markdown_v2(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 16);
     for ch in text.chars() {
         match ch {
-            '_' | '*' | '[' | ']' | '(' | ')' | '~' | '`' | '#' | '+' | '-' | '=' | '|'
-            | '{' | '}' | '.' | '!' => {
+            '_' | '*' | '[' | ']' | '(' | ')' | '~' | '`' | '#' | '+' | '-' | '=' | '|' | '{'
+            | '}' | '.' | '!' => {
                 out.push('\\');
                 out.push(ch);
             }
@@ -193,7 +193,11 @@ mod tests {
         text.push_str("```\nAfter fence.");
 
         let chunks = split_chunks_smart(&text);
-        assert!(chunks.len() >= 2, "expected multiple chunks, got {}", chunks.len());
+        assert!(
+            chunks.len() >= 2,
+            "expected multiple chunks, got {}",
+            chunks.len()
+        );
         for c in &chunks {
             assert!(c.len() <= CHUNK_MAX, "chunk too large: {}", c.len());
         }

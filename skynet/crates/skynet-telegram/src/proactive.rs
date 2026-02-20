@@ -9,7 +9,10 @@ use skynet_core::reminder::ReminderDelivery;
 ///
 /// Spawned once in `adapter.rs` when the adapter starts.
 /// Runs for the lifetime of the Telegram connection.
-pub async fn run_telegram_delivery(bot: Bot, mut rx: tokio::sync::mpsc::Receiver<ReminderDelivery>) {
+pub async fn run_telegram_delivery(
+    bot: Bot,
+    mut rx: tokio::sync::mpsc::Receiver<ReminderDelivery>,
+) {
     while let Some(delivery) = rx.recv().await {
         let Some(channel_id) = delivery.channel_id else {
             warn!(

@@ -371,7 +371,9 @@ fn try_save_image_to_tmp(block: &serde_json::Value) -> Option<String> {
         _ => "jpg",
     };
 
-    let bytes = base64::engine::general_purpose::STANDARD.decode(data).ok()?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .ok()?;
 
     let id = uuid::Uuid::new_v4().simple();
     let path = format!("/tmp/skynet-img-{id}.{ext}");
