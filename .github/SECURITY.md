@@ -12,7 +12,7 @@
 
 Instead, please report security issues by emailing:
 
-**nenad@nikolin.eu**
+**security@smartopol.ai**
 
 Include:
 - Description of the vulnerability

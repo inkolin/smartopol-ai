@@ -24,6 +24,7 @@ wiki/
 # Markdown docs (not needed in image)
 *.md
 !skynet/config/*.md
+!skynet/config/templates/*.md
 
 # Compiled artifacts
 skynet/target/

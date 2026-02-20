@@ -331,3 +331,5 @@ It fetches the code, creates the plugin folder, writes `tool.toml` and the entry
 MIT — Copyright (c) 2026 Smartopol LLC
 
 **Author:** Nenad Nikolin — [Smartopol LLC](https://github.com/inkolin)
+
+**Contact:** [hello@smartopol.ai](mailto:hello@smartopol.ai) | **Security:** [security@smartopol.ai](mailto:security@smartopol.ai)

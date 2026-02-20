@@ -88,6 +88,11 @@ main            ← stable, protected, releases tagged here
 Use GitHub Issues with the provided templates:
 - **Bug Report** — for unexpected behavior
 - **Feature Request** — for new functionality proposals
+- **Security vulnerabilities** — email [security@smartopol.ai](mailto:security@smartopol.ai) (do not open public issues)
+
+## Contact
+
+General questions: [hello@smartopol.ai](mailto:hello@smartopol.ai)
 
 ## License
 

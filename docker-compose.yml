@@ -1,30 +1,53 @@
 services:
   gateway:
-    build:
-      context: .
-      target: dev
+    # ── Pre-built image (fastest — no build required) ──────────────────────────
+    image: ghcr.io/inkolin/smartopol-ai:latest
+    # ── OR build from source (uncomment below, comment out image: above) ──────
+    # build:
+    #   context: .
+    #   target: dev
+
     restart: unless-stopped
     ports:
       - "${SKYNET_PORT:-18789}:18789"
+
     environment:
-      # Auth token for WebSocket/HTTP API access
+      # ── Gateway ──────────────────────────────────────────────────────────────
       SKYNET_GATEWAY_AUTH_TOKEN: ${SKYNET_AUTH_TOKEN:-change-me-in-production}
-      # LLM provider keys (uncomment the ones you use)
+
+      # ── LLM Providers (uncomment the ones you use) ──────────────────────────
       SKYNET_PROVIDERS_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       SKYNET_PROVIDERS_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      # Agent model (default: claude-sonnet-4-6)
+      # SKYNET_PROVIDERS_GROQ_API_KEY: ${GROQ_API_KEY:-}
+      # SKYNET_PROVIDERS_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      # SKYNET_PROVIDERS_OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # SKYNET_PROVIDERS_GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+
+      # ── Agent model (default: claude-sonnet-4-6) ────────────────────────────
       SKYNET_AGENT_MODEL: ${SKYNET_MODEL:-claude-sonnet-4-6}
-      # Discord bot (optional)
+
+      # ── Discord bot (optional) ──────────────────────────────────────────────
       SKYNET_CHANNELS_DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+
     volumes:
       - skynet-data:/home/skynet/.skynet
       # Optional: bind-mount a custom config file
       # - ./skynet.toml:/home/skynet/.skynet/skynet.toml:ro
-      # Optional: bind-mount a custom SOUL.md
-      # - ./SOUL.md:/home/skynet/.skynet/SOUL.md:ro
-    # Uncomment for local LLM (Ollama running on host)
+      # Optional: bind-mount custom workspace templates
+      # - ./templates:/home/skynet/.skynet/templates:ro
+
+    # ── Ollama (local LLM on host machine) ────────────────────────────────────
+    # Uncomment to access Ollama running on the host:
     # extra_hosts:
     #   - "host.docker.internal:host-gateway"
+    # Then add to .env: SKYNET_PROVIDERS_OLLAMA_BASE_URL=http://host.docker.internal:11434
+
+    # ── Logging (prevent disk fill from runaway logs) ─────────────────────────
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   skynet-data:
