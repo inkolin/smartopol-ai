@@ -10,11 +10,85 @@ use crate::provider::{ChatRequest, ChatResponse, LlmProvider, ProviderError};
 /// MCP bridge subcommand and discovered by Claude Code natively.
 pub struct ClaudeCliProvider {
     command: String,
+    /// Explicit path to `skynet-gateway` binary for MCP bridge.
+    /// When `None`, auto-detected from `~/.skynet/skynet-gateway`.
+    mcp_bridge_path: Option<String>,
+    /// Tools allowed in pipe mode. Empty = no `--allowedTools` flag.
+    allowed_tools: Vec<String>,
 }
 
 impl ClaudeCliProvider {
     pub fn new(command: String) -> Self {
-        Self { command }
+        Self {
+            command,
+            mcp_bridge_path: None,
+            allowed_tools: Vec::new(),
+        }
+    }
+
+    /// Set an explicit MCP bridge binary path (from config).
+    pub fn with_mcp_bridge(mut self, path: Option<String>) -> Self {
+        self.mcp_bridge_path = path;
+        self
+    }
+
+    /// Set allowed tools for pipe mode (e.g. `["Bash", "Read", "Write"]`).
+    pub fn with_allowed_tools(mut self, tools: Vec<String>) -> Self {
+        self.allowed_tools = tools;
+        self
+    }
+
+    /// Resolve the MCP bridge binary path.
+    ///
+    /// Priority: explicit config > `~/.skynet/skynet-gateway` > None.
+    fn resolve_mcp_binary(&self) -> Option<String> {
+        // 1. Explicit config override
+        if let Some(ref path) = self.mcp_bridge_path {
+            if !path.is_empty() {
+                return Some(path.clone());
+            }
+        }
+        // 2. Standard install location
+        let home = std::env::var("HOME").ok()?;
+        let installed = std::path::Path::new(&home).join(".skynet/skynet-gateway");
+        if installed.exists() {
+            return Some(installed.to_string_lossy().to_string());
+        }
+        None
+    }
+
+    /// Write MCP bridge config to a temp file for `--mcp-config`.
+    /// Returns the temp file handle to keep it alive until the child exits.
+    fn write_mcp_config(
+        &self,
+        cmd: &mut tokio::process::Command,
+    ) -> Option<tempfile::NamedTempFile> {
+        let binary = self.resolve_mcp_binary()?;
+        let config = serde_json::json!({
+            "mcpServers": {
+                "skynet": {
+                    "type": "stdio",
+                    "command": binary,
+                    "args": ["mcp-bridge"]
+                }
+            }
+        });
+
+        let file = tempfile::Builder::new()
+            .prefix("skynet-mcp-")
+            .suffix(".json")
+            .tempfile()
+            .ok()?;
+        std::fs::write(file.path(), serde_json::to_string(&config).ok()?).ok()?;
+        cmd.arg("--mcp-config").arg(file.path());
+
+        debug!(
+            mcp_binary = %binary,
+            config_path = %file.path().display(),
+            "injecting MCP bridge config into claude CLI"
+        );
+
+        Some(file)
     }
 }
 
@@ -60,6 +134,22 @@ impl LlmProvider for ClaudeCliProvider {
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
+
+        // Allow tools in pipe mode (without this, sandbox blocks Bash, etc.).
+        if !self.allowed_tools.is_empty() {
+            if self.allowed_tools.len() == 1 && self.allowed_tools[0] == "*" {
+                // Wildcard = skip all permission checks.
+                cmd.arg("--dangerously-skip-permissions");
+            } else {
+                for tool in &self.allowed_tools {
+                    cmd.arg("--allowedTools").arg(tool);
+                }
+            }
+        }
+
+        // Inject MCP bridge config so Claude Code discovers Skynet tools.
+        // Keep the temp file alive until the child process exits.
+        let _mcp_file = self.write_mcp_config(&mut cmd);
 
         let mut child = cmd.spawn().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {

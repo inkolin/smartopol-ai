@@ -123,6 +123,14 @@ impl skynet_agent::pipeline::MessageContext for AppState {
             })
             .map_err(|e| format!("failed to send to '{}': {}", channel, e))
     }
+
+    fn gateway_port(&self) -> Option<u16> {
+        Some(self.config.gateway.port)
+    }
+
+    fn database_path(&self) -> Option<&str> {
+        Some(&self.config.database.path)
+    }
 }
 
 /// Assemble the full Axum router.

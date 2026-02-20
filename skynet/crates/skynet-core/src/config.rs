@@ -150,6 +150,27 @@ pub struct ClaudeCliConfig {
     /// Path to the `claude` binary. Default: "claude" (from PATH).
     #[serde(default = "default_claude_command")]
     pub command: String,
+    /// Path to the `skynet-gateway` binary for MCP bridge.
+    /// Auto-detected from `~/.skynet/skynet-gateway` if omitted.
+    #[serde(default)]
+    pub mcp_bridge: Option<String>,
+    /// Allowed tools for Claude Code in pipe mode.
+    /// Without this, Claude Code's sandbox blocks commands like `top`, `vm_stat`.
+    /// Default: `["Bash", "Read", "Write", "Edit", "Glob", "Grep"]`.
+    /// Set to `["*"]` to allow all tools (equivalent to --dangerously-skip-permissions).
+    #[serde(default = "default_claude_allowed_tools")]
+    pub allowed_tools: Vec<String>,
+}
+
+fn default_claude_allowed_tools() -> Vec<String> {
+    vec![
+        "Bash".to_string(),
+        "Read".to_string(),
+        "Write".to_string(),
+        "Edit".to_string(),
+        "Glob".to_string(),
+        "Grep".to_string(),
+    ]
 }
 
 fn default_claude_command() -> String {

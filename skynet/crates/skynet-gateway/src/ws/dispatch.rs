@@ -1117,91 +1117,20 @@ async fn handle_system_update(params: Option<&serde_json::Value>, req_id: &str) 
 // Slash commands — intercepted at gateway level, never reach the AI
 // ---------------------------------------------------------------------------
 
-/// Known model aliases for user-friendly switching.
-const MODEL_ALIASES: &[(&str, &str)] = &[
-    ("opus", "claude-opus-4-6"),
-    ("sonnet", "claude-sonnet-4-6"),
-    ("haiku", "claude-haiku-4-5"),
-    // Full model IDs also work as-is
-];
-
-/// Resolve a model alias ("opus", "haiku") or full model ID to a canonical model string.
-fn resolve_model_alias(input: &str) -> Option<&'static str> {
-    let lower = input.to_lowercase();
-    for &(alias, full) in MODEL_ALIASES {
-        if lower == alias || lower == full {
-            return Some(full);
-        }
-    }
-    None
-}
-
 /// Handle slash commands before sending to the AI. Returns Some(response) if
 /// the message was a command, None if it should be forwarded to the AI.
 ///
-/// Commands:
-///   /model           -- show current model
-///   /model opus      -- switch to claude-opus-4-6
-///   /model sonnet    -- switch to claude-sonnet-4-6
-///   /model haiku     -- switch to claude-haiku-4-5
-///   /config          -- show runtime configuration summary
+/// `/stop` is gateway-specific (cancels WS operations, kills terminals, etc.)
+/// and handled here. All other shared commands (`/model`, `/reload`, `/config`)
+/// are delegated to `skynet_agent::pipeline::slash`.
 async fn handle_slash_command(message: &str, app: &AppState) -> Option<String> {
     let trimmed = message.trim();
 
-    // /model [name]
-    if trimmed.eq_ignore_ascii_case("/model") {
-        let model = app.agent.get_model().await;
-        return Some(format!(
-            "Current model: **{}**\n\nAvailable: `/model opus` | `/model sonnet` | `/model haiku`",
-            model
-        ));
-    }
-
-    if let Some(arg) = trimmed
-        .strip_prefix("/model ")
-        .or_else(|| trimmed.strip_prefix("/model\t"))
-    {
-        let arg = arg.trim();
-        if let Some(resolved) = resolve_model_alias(arg) {
-            let previous = app.agent.set_model(resolved.to_string()).await;
-            info!(previous = %previous, new = %resolved, "model switched via /model command");
-            return Some(format!(
-                "Model switched: **{}** -> **{}**",
-                previous, resolved
-            ));
-        }
-        return Some(format!(
-            "Unknown model: `{}`. Available: `opus`, `sonnet`, `haiku`",
-            arg
-        ));
-    }
-
-    // /stop
+    // /stop — gateway-specific emergency stop
     if trimmed.eq_ignore_ascii_case("/stop") {
         return Some(crate::stop::execute_stop(app).await);
     }
 
-    // /reload
-    if trimmed.eq_ignore_ascii_case("/reload") {
-        app.agent.reload_prompt().await;
-        return Some(
-            "Workspace prompt reloaded from disk. All `.md` files in `~/.skynet/` re-read."
-                .to_string(),
-        );
-    }
-
-    // /config
-    if trimmed.eq_ignore_ascii_case("/config") {
-        let model = app.agent.get_model().await;
-        let provider = app.agent.provider().name();
-        let port = app.config.gateway.port;
-        let db = &app.config.database.path;
-        return Some(format!(
-            "**Skynet Runtime**\n- Model: `{}`\n- Provider: `{}`\n- Port: `{}`\n- Database: `{}`",
-            model, provider, port, db
-        ));
-    }
-
-    // Not a slash command -- forward to AI.
-    None
+    // Delegate shared commands to the pipeline.
+    skynet_agent::pipeline::slash::handle_slash_command(message, app).await
 }

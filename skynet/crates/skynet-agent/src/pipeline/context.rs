@@ -36,4 +36,14 @@ pub trait MessageContext: Send + Sync {
     ///
     /// Returns `Err` with a human-readable explanation on failure.
     fn send_to_channel(&self, channel: &str, recipient: &str, message: &str) -> Result<(), String>;
+
+    /// Gateway HTTP port (if known). Used by `/config` slash command.
+    fn gateway_port(&self) -> Option<u16> {
+        None
+    }
+
+    /// SQLite database path (if known). Used by `/config` slash command.
+    fn database_path(&self) -> Option<&str> {
+        None
+    }
 }

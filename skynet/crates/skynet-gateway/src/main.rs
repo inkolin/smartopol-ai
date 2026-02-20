@@ -8,6 +8,7 @@ mod app;
 mod auth;
 mod http;
 pub mod mcp_bridge;
+mod mcp_lifecycle;
 pub mod stop;
 pub mod tools;
 pub mod update;
@@ -103,6 +104,9 @@ async fn main() -> anyhow::Result<()> {
             tracing::warn!("Config load failed ({}), using defaults", e);
             skynet_core::config::SkynetConfig::default()
         });
+
+    // Ensure MCP bridge is registered/unregistered based on active provider.
+    mcp_lifecycle::ensure_mcp_registration(&config);
 
     let bind = config.gateway.bind.clone();
     let port = config.gateway.port;
@@ -559,9 +563,11 @@ fn build_provider(
             claude_cli.command
         );
         slots.push(ProviderSlot::new(
-            Box::new(skynet_agent::claude_cli::ClaudeCliProvider::new(
-                claude_cli.command.clone(),
-            )),
+            Box::new(
+                skynet_agent::claude_cli::ClaudeCliProvider::new(claude_cli.command.clone())
+                    .with_mcp_bridge(claude_cli.mcp_bridge.clone())
+                    .with_allowed_tools(claude_cli.allowed_tools.clone()),
+            ),
             0, // no retries — CLI either works or doesn't
         ));
     }

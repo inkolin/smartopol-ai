@@ -14,7 +14,7 @@ pub fn run(config: &skynet_core::config::SkynetConfig) -> anyhow::Result<()> {
     // Open SQLite directly — no need for the full gateway stack.
     let db_path = &config.database.path;
     let conn = rusqlite::Connection::open(db_path)?;
-    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=3000;")?;
 
     // Run migrations to ensure schema exists.
     skynet_memory::db::init_db(&conn)?;

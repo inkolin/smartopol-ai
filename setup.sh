@@ -1134,6 +1134,22 @@ build_binary() {
     chmod +x "$SKYNET_DIR/$BINARY_NAME"
 
     success "Binary installed → $SKYNET_DIR/$BINARY_NAME"
+
+    # ── Register/unregister MCP bridge right after binary install ──────────────
+    if command -v claude &>/dev/null; then
+        if [[ "$PROVIDER_NAME" == "claude-cli" ]]; then
+            info "Registering Skynet MCP bridge with Claude Code..."
+            if claude mcp add -s user --transport stdio skynet -- "$SKYNET_DIR/$BINARY_NAME" mcp-bridge 2>/dev/null; then
+                success "MCP bridge registered (user scope)"
+            else
+                warn "MCP bridge registration failed. Register manually:"
+                warn "  claude mcp add -s user --transport stdio skynet -- $SKYNET_DIR/$BINARY_NAME mcp-bridge"
+            fi
+        else
+            # Remove stale MCP registration to avoid latency when not using claude-cli.
+            claude mcp remove -s user skynet 2>/dev/null || true
+        fi
+    fi
 }
 
 # ─── 5. Create ~/.skynet/ ─────────────────────────────────────────────────────
@@ -1478,17 +1494,20 @@ first_run_greeting() {
     fi
     echo
 
-    # ── Register MCP bridge with Claude Code (if provider is claude-cli) ────
+    # ── Register MCP bridge with Claude Code (second chance — belt + suspenders) ──
     if [[ "$PROVIDER_NAME" == "claude-cli" ]] && command -v claude &>/dev/null; then
-        info "Registering Skynet MCP bridge with Claude Code..."
+        info "Verifying Skynet MCP bridge registration..."
         if "$SKYNET_DIR/$BINARY_NAME" --version &>/dev/null 2>&1; then
-            if claude mcp add --transport stdio skynet -- "$SKYNET_DIR/$BINARY_NAME" mcp-bridge 2>/dev/null; then
+            if claude mcp add -s user --transport stdio skynet -- "$SKYNET_DIR/$BINARY_NAME" mcp-bridge 2>/dev/null; then
                 success "MCP bridge registered — Claude Code can now use Skynet knowledge/memory tools"
             else
                 warn "MCP bridge registration failed. Register manually:"
-                warn "  claude mcp add --transport stdio skynet -- $SKYNET_DIR/$BINARY_NAME mcp-bridge"
+                warn "  claude mcp add -s user --transport stdio skynet -- $SKYNET_DIR/$BINARY_NAME mcp-bridge"
             fi
         fi
+    elif [[ "$PROVIDER_NAME" != "claude-cli" ]] && command -v claude &>/dev/null; then
+        # Ensure stale MCP registration is removed when switching providers.
+        claude mcp remove -s user skynet 2>/dev/null || true
     fi
 
     # ── Offer auto-start on boot (only when AI works) ─────────────────────────

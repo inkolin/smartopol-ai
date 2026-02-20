@@ -7,6 +7,7 @@
 pub mod compact;
 pub mod context;
 pub mod process;
+pub mod slash;
 
 pub use compact::compact_session_if_needed;
 pub use context::MessageContext;

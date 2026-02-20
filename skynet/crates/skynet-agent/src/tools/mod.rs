@@ -62,6 +62,28 @@ pub trait Tool: Send + Sync {
     async fn execute(&self, input: serde_json::Value) -> ToolResult;
 }
 
+/// Static catalog of all built-in tools (name, description).
+///
+/// Does not require instantiation or context — useful for `/tools` listing.
+pub fn tool_catalog() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("read_file", "Read the contents of a file"),
+        ("write_file", "Write content to a file"),
+        ("list_files", "List files in a directory"),
+        ("search_files", "Search for text patterns in files"),
+        ("patch_file", "Apply a patch to modify a file"),
+        ("execute_command", "Execute a shell command (one-shot)"),
+        ("bash", "Persistent interactive bash session"),
+        ("knowledge_search", "Search the knowledge base (FTS5)"),
+        ("knowledge_write", "Write or update a knowledge entry"),
+        ("knowledge_list", "List all knowledge topics"),
+        ("knowledge_delete", "Delete a knowledge entry"),
+        ("reminder", "Set a timed reminder"),
+        ("send_message", "Send a message to another channel"),
+        ("link_identity", "Link a channel identity to a Skynet user"),
+    ]
+}
+
 /// Convert a slice of tools to API-level tool definitions.
 pub fn to_definitions(tools: &[Box<dyn Tool>]) -> Vec<ToolDefinition> {
     tools

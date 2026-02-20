@@ -64,6 +64,19 @@ impl<C: DiscordAppContext + 'static> EventHandler for DiscordHandler<C> {
 
         let content = strip_mention(&msg.content).trim().to_string();
 
+        // Intercept text-based slash commands before sending to the AI.
+        if content.starts_with('/') {
+            if let Some(response) =
+                skynet_agent::pipeline::slash::handle_slash_command(&content, self.ctx.as_ref())
+                    .await
+            {
+                let _ =
+                    crate::send::send_response(&ctx.http, msg.channel_id, &response, Some(msg.id))
+                        .await;
+                return;
+            }
+        }
+
         // Don't drop messages that have attachments even if text is empty.
         if content.is_empty() && msg.attachments.is_empty() {
             return;
