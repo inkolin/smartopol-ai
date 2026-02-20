@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Telegram Channel Adapter — v0.6.0)
+
+- **`skynet-telegram` crate** — new Telegram channel adapter using teloxide 0.13 (long polling, no webhook required)
+- **`TelegramAdapter<C>`** (`adapter.rs`): drives teloxide Dispatcher, spawns proactive delivery and outbound tasks
+- **Full message pipeline** (`handler.rs`): bot filter → allowlist check → DM guard → require_mention guard → UserResolver → session key → slash commands → media extraction → non-blocking LLM spawn
+- **Allowlist** (`allow.rs`): deny-by-default; `["*"]` wildcard, `@username`, numeric Telegram user ID; 8 unit tests
+- **Smart chunking** (`send.rs`): 4090-char limit, code-fence-aware (same algorithm as Discord); MarkdownV2 with plain-text fallback; `escape_markdown_v2()` helper; 8 unit tests
+- **Full media support** (`attach.rs`): photo (highest res), document (any MIME), video, audio, voice (OGG), sticker (WebP) — all downloaded via `get_file` + `download_file`, base64-encoded into Anthropic content blocks; 20 MB size guard
+- **Typing indicator** (`typing.rs`): `TypingHandle` sends `ChatAction::Typing` every 4s, aborted on response
+- **Proactive reminder delivery** (`proactive.rs`): scheduler-fired reminders delivered to Telegram chats
+- **Slash commands**: `/clear` (delete session), `/whoami` (debug) local to Telegram; all shared commands (`/help`, `/version`, `/model`, `/tools`, `/reload`, `/config`) also available
+- **Session keys**: `user:{uid}:telegram:private_{id}`, `user:{uid}:telegram:group_{chat_id}`, `user:{uid}:telegram:group_{chat_id}:{thread_id}` for forum topics
+- **Cross-channel outbound**: `channel_senders["telegram"]` wired in gateway — `send_message` tool can deliver to Telegram chats
+- **`TelegramConfig` expanded** (`skynet-core/src/config.rs`): 6 fields — `bot_token`, `allow_users`, `require_mention`, `dm_allowed`, `max_attachment_bytes`, `voice_transcription`
+- **Gateway wiring** (`main.rs`): `TelegramAdapter` spawned alongside Discord; `"telegram"` delivery channel in reminder router
+- **Wiki**: `Telegram-Setup.md` — BotFather setup, config reference, allowlist, commands table, media matrix, session keys, proactive reminders, troubleshooting
+
+### Fixed
+
+- **Claude CLI + multimodal** (`claude_cli.rs`): when `raw_messages` are present (image attachments), `messages` is `Vec::new()` — CLI now extracts text from `raw_messages` and saves base64 images to `/tmp/skynet-img-<uuid>.jpg`, injecting the path into the prompt so Claude Code can read and analyze images via its Read tool
+
 ### Added (Discord Full-Featured Upgrade)
 
 - **Smart message chunking** (`skynet-discord/src/send.rs`): code-fence-aware splitting — tracks ` ```lang ` blocks across chunk boundaries, closes and reopens fences automatically

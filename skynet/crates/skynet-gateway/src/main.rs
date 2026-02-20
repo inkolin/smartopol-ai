@@ -148,6 +148,9 @@ async fn main() -> anyhow::Result<()> {
     // Discord delivery channel: DeliveryRouter → Discord proactive delivery task
     let (discord_delivery_tx, discord_delivery_rx) =
         tokio::sync::mpsc::channel::<skynet_core::reminder::ReminderDelivery>(256);
+    // Telegram delivery channel: DeliveryRouter → Telegram proactive delivery task
+    let (telegram_delivery_tx, telegram_delivery_rx) =
+        tokio::sync::mpsc::channel::<skynet_core::reminder::ReminderDelivery>(256);
 
     // scheduler: management handle for AppState + engine for background loop
     let scheduler_handle =
@@ -288,6 +291,11 @@ async fn main() -> anyhow::Result<()> {
                         tracing::warn!(job_id = %job.id, "discord delivery channel closed — message dropped");
                     }
                 }
+                "telegram" => {
+                    if telegram_delivery_tx.send(delivery).await.is_err() {
+                        tracing::warn!(job_id = %job.id, "telegram delivery channel closed — message dropped");
+                    }
+                }
                 "ws" | "web" => {
                     let payload = serde_json::json!({
                         "event":   "reminder.fire",
@@ -334,6 +342,25 @@ async fn main() -> anyhow::Result<()> {
     } else {
         // Close the receiver so discord_delivery_tx in the router fails gracefully.
         drop(discord_delivery_rx);
+    }
+
+    // spawn Telegram adapter if configured
+    if let Some(ref telegram_cfg) = state.config.channels.telegram {
+        let (outbound_tx, outbound_rx) =
+            tokio::sync::mpsc::channel::<skynet_core::types::ChannelOutbound>(256);
+        state
+            .channel_senders
+            .insert("telegram".to_string(), outbound_tx);
+
+        let adapter = skynet_telegram::TelegramAdapter::new(telegram_cfg, Arc::clone(&state));
+        tokio::spawn(async move {
+            adapter
+                .run(Some(telegram_delivery_rx), Some(outbound_rx))
+                .await;
+        });
+        info!("Telegram bot started");
+    } else {
+        drop(telegram_delivery_rx);
     }
 
     // spawn scheduler engine loop in background

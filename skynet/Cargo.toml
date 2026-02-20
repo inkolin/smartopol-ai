@@ -13,6 +13,7 @@ members = [
     "crates/skynet-scheduler",
     "crates/skynet-terminal",
     "crates/skynet-discord",
+    "crates/skynet-telegram",
 ]
 
 [workspace.package]

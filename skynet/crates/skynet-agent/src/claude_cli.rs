@@ -111,7 +111,17 @@ impl LlmProvider for ClaudeCliProvider {
         })?;
 
         // Format conversation history + current message as text for stdin.
-        let prompt = format_prompt(&req.messages);
+        // When raw_messages are present (multimodal request), messages is Vec::new().
+        // Extract text parts from raw_messages so the CLI still gets a non-empty prompt.
+        let prompt = if req.messages.is_empty() {
+            if let Some(ref raw) = req.raw_messages {
+                extract_text_from_raw(raw)
+            } else {
+                String::new()
+            }
+        } else {
+            format_prompt(&req.messages)
+        };
 
         debug!(
             command = %self.command,
@@ -273,6 +283,103 @@ fn format_prompt(messages: &[crate::provider::Message]) -> String {
     }
 
     out
+}
+
+/// Extract text content from raw_messages (multimodal JSON) for the Claude CLI provider.
+///
+/// Images are saved to temp files in `/tmp/` and their paths are injected into
+/// the prompt so Claude CLI (which runs Claude Code) can read them via the Read tool.
+/// Text parts are included verbatim.
+fn extract_text_from_raw(raw: &[serde_json::Value]) -> String {
+    let mut out = String::new();
+
+    for msg in raw {
+        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("user");
+        let label = match role {
+            "assistant" => "Assistant",
+            _ => "User",
+        };
+        let content = msg.get("content");
+        match content {
+            Some(serde_json::Value::String(s)) => {
+                if !out.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(&format!("{label}: {s}"));
+            }
+            Some(serde_json::Value::Array(parts)) => {
+                let mut turn = String::new();
+                for part in parts {
+                    match part.get("type").and_then(|t| t.as_str()) {
+                        Some("text") => {
+                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                if !turn.is_empty() {
+                                    turn.push(' ');
+                                }
+                                turn.push_str(text);
+                            }
+                        }
+                        Some("image") => {
+                            // Save base64 image to a temp file and pass the path to Claude CLI.
+                            let saved_path = try_save_image_to_tmp(part);
+                            match saved_path {
+                                Some(path) => {
+                                    turn.push_str(&format!(
+                                        "\n[Image saved to: {path} — please read and analyze it]"
+                                    ));
+                                }
+                                None => {
+                                    turn.push_str(" [image attachment — could not save to disk]");
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if !turn.is_empty() {
+                    if !out.is_empty() {
+                        out.push('\n');
+                    }
+                    out.push_str(&format!("{label}: {turn}"));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    out
+}
+
+/// Decode a base64 image content block and save it to a temp file.
+///
+/// Returns the absolute path on success, `None` on any error.
+fn try_save_image_to_tmp(block: &serde_json::Value) -> Option<String> {
+    use base64::Engine;
+    use std::io::Write;
+
+    let source = block.get("source")?;
+    let data = source.get("data").and_then(|d| d.as_str())?;
+    let media_type = source
+        .get("media_type")
+        .and_then(|m| m.as_str())
+        .unwrap_or("image/jpeg");
+
+    let ext = match media_type {
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        _ => "jpg",
+    };
+
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data).ok()?;
+
+    let id = uuid::Uuid::new_v4().simple();
+    let path = format!("/tmp/skynet-img-{id}.{ext}");
+
+    let mut f = std::fs::File::create(&path).ok()?;
+    f.write_all(&bytes).ok()?;
+
+    Some(path)
 }
 
 /// Truncate a string for error messages.

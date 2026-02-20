@@ -272,6 +272,22 @@ pub struct ChannelsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelegramConfig {
     pub bot_token: String,
+    /// Allowed users: `["*"]` = all, `["@username", "123456789"]` = specific.
+    /// Empty list = deny all (deny-by-default).
+    #[serde(default)]
+    pub allow_users: Vec<String>,
+    /// In group chats, only respond when @bot is mentioned. Default: false.
+    #[serde(default)]
+    pub require_mention: bool,
+    /// Allow private DMs. Default: true.
+    #[serde(default = "bool_true")]
+    pub dm_allowed: bool,
+    /// Max inbound media size in bytes. Default: 20 MB.
+    #[serde(default = "default_telegram_max_bytes")]
+    pub max_attachment_bytes: u64,
+    /// Voice transcription backend: `"none"` or `"openai_whisper"`. Default: `"none"`.
+    #[serde(default = "default_none_str")]
+    pub voice_transcription: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -319,6 +335,12 @@ fn default_discord_status() -> String {
 }
 fn default_max_attachment_bytes() -> u64 {
     8 * 1024 * 1024
+}
+fn default_telegram_max_bytes() -> u64 {
+    20 * 1024 * 1024
+}
+fn default_none_str() -> String {
+    "none".to_string()
 }
 fn default_voice_transcription() -> String {
     "none".to_string()
