@@ -328,8 +328,8 @@ It fetches the code, creates the plugin folder, writes `tool.toml` and the entry
 
 ## License
 
-MIT — Copyright (c) 2026 Smartopol LLC
+MIT — Copyright (c) 2026 Nenad Nikolin
 
-**Author:** Nenad Nikolin — [Smartopol LLC](https://github.com/inkolin)
+**Author:** [Nenad Nikolin](https://github.com/inkolin)
 
 **Contact:** [hello@smartopol.ai](mailto:hello@smartopol.ai) | **Security:** [security@smartopol.ai](mailto:security@smartopol.ai)

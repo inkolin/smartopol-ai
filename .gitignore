@@ -27,6 +27,10 @@ TASKLIST.md
 # Wiki (separate git repo — github.com/inkolin/smartopol-ai.wiki)
 wiki/
 
+# Claude Code
+.claude/
+CLAUDE.md
+
 # IDE
 .vscode/
 .idea/
